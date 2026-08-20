@@ -13,6 +13,17 @@
    them.
    ───────────────────────────────────────────────────────────────────────── */
 
+// Hard safety block (demo mode): every Graph call funnels through _get/
+// _post/_patch below, so guarding those three is a single choke point that
+// covers every higher-level method transitively (getSiteId, getListId,
+// findUserByEmail, savePaceVisit, closePaceVisit, everything) — no call
+// site needs its own check, and none can be added later that forgets one.
+function assertGraphAllowed() {
+  if (typeof APP_MODE !== "undefined" && APP_MODE === "demo") {
+    throw new Error("Demo mode safety block: Microsoft Graph access is disabled.");
+  }
+}
+
 function isWritableSharePointField(internalName) {
   const blocked = new Set([
     "id", "ContentType", "Modified", "Created", "Author", "Editor",
@@ -34,6 +45,7 @@ const GRAPH = {
   _schemaCache: {},
 
   async _get(path) {
+    assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
     const resp  = await fetch(`${this._BASE}/${path}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!resp.ok) {
@@ -45,6 +57,7 @@ const GRAPH = {
   },
 
   async _post(path, body) {
+    assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
     const resp  = await fetch(`${this._BASE}/${path}`, {
       method: "POST",
@@ -60,6 +73,7 @@ const GRAPH = {
   },
 
   async _patch(path, body) {
+    assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
     const resp  = await fetch(`${this._BASE}/${path}`, {
       method: "PATCH",

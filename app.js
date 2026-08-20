@@ -136,9 +136,21 @@ function resetTrip() {
   STATE.submissionId = null;
 }
 
+// "Remember last room" uses a demo-specific key in demo mode (spec: keep
+// simulated state fully separate from anything a production deployment
+// would persist), and the real key otherwise.
+function roomStorageKey() {
+  return APP_MODE === "demo" ? DEMO_CONFIG.roomStorageKey : CONFIG.STORAGE_KEYS.LAST_ROOM;
+}
+
 /* ── Boot ─────────────────────────────────────────────────────────────── */
 
 async function boot() {
+  if (APP_MODE === "demo") {
+    await startDemoMode();
+    return;
+  }
+
   await AUTH.init();
 
   if (!AUTH.account) {
@@ -161,12 +173,26 @@ async function boot() {
     return;
   }
 
-  document.getElementById("loadingStatus").textContent = "Loading students…";
-  await ROSTER.refresh();
-
-  const lastRoom = localStorage.getItem(CONFIG.STORAGE_KEYS.LAST_ROOM);
+  const lastRoom = localStorage.getItem(roomStorageKey());
   if (lastRoom && CONFIG.ROOMS.some(r => r.id === lastRoom)) {
     await enterRoom(lastRoom, "forward");
+  } else {
+    nav("home", "forward");
+  }
+}
+
+// Demo mode entry point: no MSAL, no Graph, no sign-in screen at all —
+// straight to Room selection (or straight into the last-used room) with a
+// fake staff identity already attached to STATE for "Submitted By".
+async function startDemoMode() {
+  document.body.classList.add("demo-mode");
+  document.getElementById("demoBanner").classList.remove("hidden");
+  document.getElementById("resetDemoBtn")?.classList.remove("hidden");
+  AUTH.staffName = DEMO_USER.name;
+
+  const savedRoom = localStorage.getItem(roomStorageKey());
+  if (savedRoom && CONFIG.ROOMS.some(r => r.id === savedRoom)) {
+    await enterRoom(savedRoom, "forward");
   } else {
     nav("home", "forward");
   }
@@ -183,7 +209,7 @@ document.querySelectorAll(".room-card").forEach(btn => {
 
 async function enterRoom(roomId, direction) {
   STATE.room = roomId;
-  localStorage.setItem(CONFIG.STORAGE_KEYS.LAST_ROOM, roomId);
+  localStorage.setItem(roomStorageKey(), roomId);
   const label = CONFIG.ROOMS.find(r => r.id === roomId)?.label || roomId;
   document.getElementById("roomTitle").textContent = label.toUpperCase();
   nav("room", direction);
@@ -194,7 +220,7 @@ async function refreshRoomVisits() {
   const listEl = document.getElementById("currentlyInPace");
   listEl.innerHTML = `<p class="empty-hint">Loading…</p>`;
   try {
-    STATE.paceVisits = await GRAPH.getPaceVisitsByDisplayName();
+    STATE.paceVisits = await PACE_DATA.getVisits();
   } catch (err) {
     console.error("Failed to load PACE visits:", err);
     listEl.innerHTML = `<p class="empty-hint">Unable to load current activity.</p>`;
@@ -219,7 +245,7 @@ function renderCurrentlyInPace() {
   listEl.innerHTML = open.map(v => `
     <div class="current-card">
       <div class="current-card-info">
-        <span class="current-card-name">${escHtml(v.Student || "")}</span>
+        <span class="current-card-name">${escHtml(v.Student || "")}${v.demo ? ' <span class="badge-simulated">SIMULATED</span>' : ""}</span>
         <span class="current-card-meta">In: ${escHtml(fmt12h(v["Time In"]))} · ${elapsedMinutesSince(dateOnly(v.Date), v["Time In"])} min</span>
       </div>
       <button class="current-card-exit" data-item-id="${escHtml(v.id)}">EXIT →</button>
@@ -236,19 +262,33 @@ function renderCurrentlyInPace() {
 // Keep elapsed-minute labels fresh without a full reload.
 setInterval(() => { if (currentScreenName === "room") renderCurrentlyInPace(); }, 30000);
 
-document.getElementById("newStudentBtn").addEventListener("click", () => {
-  resetTrip();
-  renderStudentGrid();
-  nav("student", "forward");
-});
+document.getElementById("newStudentBtn").addEventListener("click", () => openStudentScreen());
 
 /* ── STUDENT SELECT ───────────────────────────────────────────────────── */
 
+// Loaded once per visit to the Student screen (via PACE_DATA.getStudents(),
+// which itself branches on APP_MODE) and filtered synchronously from here
+// on so typing in the search box doesn't re-fetch on every keystroke.
+let cachedStudents = [];
+
+async function openStudentScreen() {
+  resetTrip();
+  document.getElementById("studentSearch").value = "";
+  document.getElementById("studentGrid").innerHTML = `<p class="empty-hint">Loading students…</p>`;
+  nav("student", "forward");
+  try {
+    cachedStudents = await PACE_DATA.getStudents();
+  } catch (err) {
+    console.error("Failed to load students:", err);
+    cachedStudents = [];
+  }
+  renderStudentGrid();
+}
+
 function renderStudentGrid(filter = "") {
   const grid = document.getElementById("studentGrid");
-  if (!ROSTER.loaded) { grid.innerHTML = `<p class="empty-hint">Loading students…</p>`; return; }
   const q = filter.trim().toLowerCase();
-  const students = ROSTER.getPaceEnabled().filter(s => !q || s.name.toLowerCase().includes(q));
+  const students = cachedStudents.filter(s => !q || s.name.toLowerCase().includes(q));
   if (students.length === 0) {
     grid.innerHTML = `<p class="empty-hint">No matching students.</p>`;
     return;
@@ -262,7 +302,7 @@ function renderStudentGrid(filter = "") {
 document.getElementById("studentSearch").addEventListener("input", e => renderStudentGrid(e.target.value));
 
 function selectStudent(studentId) {
-  const student = ROSTER.find(studentId);
+  const student = cachedStudents.find(s => s.id === studentId);
   if (!student) return;
 
   // Duplicate protection (spec section 32) — check this room's cached open
@@ -396,7 +436,7 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   };
 
   try {
-    await GRAPH.savePaceVisit(entry);
+    await PACE_DATA.createVisit(entry);
     btn.disabled = false; btn.textContent = "SAVE PACE ENTRY";
     STATE.saving = false;
     document.getElementById("savedOverlay").classList.remove("hidden");
@@ -450,7 +490,7 @@ document.getElementById("confirmExitBtn").addEventListener("click", async () => 
   btn.disabled = true; btn.textContent = "Closing…";
   const timeOut = nowHHMM();
   try {
-    await GRAPH.closePaceVisit(item.id, timeOut);
+    await PACE_DATA.closeVisit(item.id, timeOut);
     btn.disabled = false; btn.textContent = "CONFIRM EXIT";
     showToast(`${item.Student} exited PACE.`);
     STATE.exitTarget = null;
@@ -479,7 +519,7 @@ document.querySelector('[data-nav="recent"]').addEventListener("click", async ()
   const listEl = document.getElementById("recentList");
   listEl.innerHTML = `<p class="empty-hint">Loading…</p>`;
   try {
-    STATE.paceVisits = await GRAPH.getPaceVisitsByDisplayName();
+    STATE.paceVisits = await PACE_DATA.getVisits();
   } catch (err) {
     listEl.innerHTML = `<p class="empty-hint">Unable to load recent activity.</p>`;
     return;
@@ -501,10 +541,22 @@ document.querySelector('[data-nav="recent"]').addEventListener("click", async ()
     if (v.Behavior) subParts.push(v.Behavior);
     if (v["SCM Used"]) subParts.push("SCM");
     return `<div class="recent-row">
-      <div class="recent-row-top"><span>${escHtml(v.Student || "")}</span><span>${dur}</span></div>
+      <div class="recent-row-top"><span>${escHtml(v.Student || "")}${v.demo ? ' <span class="badge-simulated">SIMULATED</span>' : ""}</span><span>${dur}</span></div>
       <div class="recent-row-sub">${escHtml(subParts.join(" · "))}</div>
     </div>`;
   }).join("");
+});
+
+/* ── DEMO: reset control (spec §11 — visible only in demo mode) ──────── */
+
+document.getElementById("resetDemoBtn")?.addEventListener("click", () => {
+  if (APP_MODE !== "demo") return; // defensive: this control only exists/works in demo mode
+  const confirmed = confirm("Clear all demo PACE records stored on this device?");
+  if (!confirmed) return;
+  DemoStorage.reset();
+  showToast("Demo data cleared.");
+  refreshRoomVisits();
+  if (currentScreenName === "recent") document.querySelector('[data-nav="recent"]').click();
 });
 
 /* ── Misc ─────────────────────────────────────────────────────────────── */

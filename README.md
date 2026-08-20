@@ -47,6 +47,56 @@ Nothing else was copied — no Daily Pulse, Walkthrough, Student Check-In,
 Reports, Dashboard, Form Lab, Setup, or sidebar nav. This app has no
 navigation menu at all; the workflow itself *is* the navigation.
 
+## Demo mode
+
+`APP_MODE` in `config.js` is currently `"demo"` — the deployed/testing
+build requires **no Microsoft sign-in and makes zero calls to Microsoft
+Graph, MSAL, or SharePoint**. It's safe to share the URL publicly for
+hands-on testing.
+
+- **Fake roster** (`demo-data.js`, `DEMO_STUDENTS`) — six `SIM-00N` /
+  first-name-plus-initial students, no real IU29 names.
+- **Local-only storage** (`DemoStorage` in `demo-data.js`) — PACE visits
+  are saved to `localStorage` under `paceRoomTrackerDemoData`, keyed by
+  the exact same SharePoint *display* field names production writes
+  (`"PACE Room"`, `"Student"`, `"Time In"`, …), so every render function in
+  `app.js` works identically in both modes without a single `if (APP_MODE)`
+  inside the UI code itself.
+- **Unified adapter** (`pace-data.js`, `PACE_DATA`) — the only place that
+  branches on `APP_MODE`. `app.js` calls `PACE_DATA.getStudents()` /
+  `.getVisits()` / `.createVisit()` / `.closeVisit()` and never touches
+  `GRAPH`, `ROSTER`, or `DemoStorage` directly.
+- **Hard safety block** — `GRAPH._get/_post/_patch` (the only three
+  functions that ever call `fetch()` against Microsoft endpoints) throw
+  immediately in demo mode via `assertGraphAllowed()`, so this is a single
+  choke point that covers every higher-level Graph method transitively,
+  not a per-call-site check that a future call could forget.
+  `AUTH.init()`/`AUTH.acquireGraphToken()` are guarded the same way, so
+  MSAL is never constructed and no token is ever requested.
+- **Demo banner** — persistent, fixed top strip (`#demoBanner`), shown only
+  when `APP_MODE === "demo"`; every screen's own top offset shifts down to
+  clear it (see `body.demo-mode .screen` in `styles.css`).
+- **`SIMULATED` badge** — shown on any visit row with `demo: true` (Currently
+  in PACE + Recent), so nothing reads as a real record.
+- **Reset Demo Data** — bottom of the Recent screen, demo-only, confirms
+  before calling `DemoStorage.reset()`.
+- **Verified**: room→student→reason→support→SCM→notes→confirm→save→Currently
+  in PACE→reload-persists→Exit→Time-Out-updates→Recent→Reset, all exercised
+  in-browser with zero network requests recorded throughout (confirmed via
+  the browser's network panel — nothing to `login.microsoftonline.com`,
+  `graph.microsoft.com`, or `siu29.sharepoint.com`).
+
+**To switch to the real thing:** set `APP_MODE = "production"` in
+`config.js` and complete "Manual configuration required" below first. No
+production auth/Graph code was removed or altered to build demo mode —
+only guarded — so this is a one-line flip, not a rebuild.
+
+**Deploying the demo publicly**: this project isn't yet linked to a Vercel
+project (unlike MAC Walkthrough). Deploying makes the app reachable at a
+real public URL, so that step wasn't run automatically — see the
+"Deploying" section below and run `vercel deploy --prod` (or `vercel link`
+first, if this is the first deploy) when ready.
+
 ## Known gaps / decisions made without further data model changes
 
 - **`Return Status`** exists as a column on `IEP_Pace_Visits` (MAC
@@ -126,10 +176,14 @@ Walkthrough's `index.html`/`app.js` bundle.
 index.html    — all screens as static markup, one <section class="screen">
                  per step; app.js shows/hides + slides between them
 styles.css    — kiosk styling, big tap targets, slide-transition CSS
-config.js     — site/list names, room ids, reason/support option lists
-auth.js       — MSAL init/login/logout, IEP_Users2 staff gate
+config.js     — APP_MODE/DEMO_CONFIG, site/list names, room ids, options
+demo-data.js  — fake roster, fake staff identity, localStorage-backed store
+auth.js       — MSAL init/login/logout, IEP_Users2 staff gate (demo-guarded)
 graph.js      — Graph client: schema-mapped CRUD, scoped to 3 lists only
+                 (demo-guarded via assertGraphAllowed())
 roster.js     — loads + filters the PACE-enabled student roster
-app.js        — screen navigation + all panel logic/state
+pace-data.js  — PACE_DATA: the one place demo vs. production is decided
+app.js        — screen navigation + all panel logic/state (mode-agnostic —
+                 talks only to PACE_DATA)
 manifest.webmanifest, sw.js — PWA install + offline app-shell caching
 ```

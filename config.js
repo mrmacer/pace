@@ -11,6 +11,21 @@
    name live from the list schema.
    ───────────────────────────────────────────────────────────────────────── */
 
+// ── App mode ────────────────────────────────────────────────────────────
+// "demo"       — no Microsoft sign-in, no Graph calls, simulated roster,
+//                records saved only to this browser's localStorage. Safe
+//                to deploy publicly for hands-on testing.
+// "production" — the real thing: MSAL sign-in, live Graph calls, writes to
+//                IEP_Pace_Visits. See auth.js/graph.js for the guards that
+//                key off this flag.
+const APP_MODE = "demo"; // "demo" | "production"
+
+const DEMO_CONFIG = {
+  enabled: APP_MODE === "demo",
+  storageKey: "paceRoomTrackerDemoData",
+  roomStorageKey: "paceRoomTrackerDemoRoom"
+};
+
 const CONFIG = {
   APP_NAME: "PACE Room Tracker",
   ORG_NAME: "IU29",

@@ -18,6 +18,14 @@
 </head>
 <body>
 
+<!-- Demo mode banner (spec §4) — outside #app so it never gets caught up
+     in the screen slide transitions; toggled visible by app.js only when
+     APP_MODE === "demo". -->
+<div id="demoBanner" class="demo-banner hidden">
+  <b>DEMO MODE — Simulated student data only</b>
+  <span>Entries are stored only in this browser and are not sent to SharePoint.</span>
+</div>
+
 <div id="app">
 
   <!-- ── Sign-in gate ─────────────────────────────────────────────── -->
@@ -226,6 +234,9 @@
     <div class="panel-inner">
       <div id="recentList" class="recent-list"><p class="empty-hint">Loading…</p></div>
       <p class="correction-hint">Need to correct an entry? Contact an administrator.</p>
+      <!-- Demo-only admin control (spec §11) — hidden by default, shown by
+           app.js only when APP_MODE === "demo". -->
+      <button class="btn-reset-demo hidden" id="resetDemoBtn">Reset Demo Data</button>
     </div>
   </section>
 
@@ -234,9 +245,11 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="config.js"></script>
+<script src="demo-data.js"></script>
 <script src="auth.js"></script>
 <script src="graph.js"></script>
 <script src="roster.js"></script>
+<script src="pace-data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

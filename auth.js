@@ -37,6 +37,15 @@ const AUTH = {
   lookupError: null,
 
   async init() {
+    // Demo mode never touches Microsoft auth at all — no MSAL client is
+    // constructed, no redirect handling, no token/account state. app.js's
+    // demo boot path doesn't even call this, but guard it here too so it's
+    // safe by construction regardless of call site.
+    if (typeof APP_MODE !== "undefined" && APP_MODE === "demo") {
+      console.warn("Demo mode: skipping Microsoft authentication entirely.");
+      return;
+    }
+
     this._client = new msal.PublicClientApplication(MSAL_CONFIG);
 
     try {
@@ -100,6 +109,12 @@ const AUTH = {
   get displayName()     { return this.account?.name || this.account?.username || ""; },
 
   async acquireGraphToken() {
+    // Belt-and-suspenders: GRAPH's own assertGraphAllowed() already blocks
+    // demo mode before this could ever be reached, but never request a
+    // token in demo mode under any circumstance.
+    if (typeof APP_MODE !== "undefined" && APP_MODE === "demo") {
+      throw new Error("Demo mode safety block: token acquisition is disabled.");
+    }
     const request = { scopes: ["User.Read", "Sites.ReadWrite.All"], account: this.account };
     try {
       const resp = await this._client.acquireTokenSilent(request);

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>PACE Room Tracker</title>
+
+<!-- PWA / iPad home-screen behavior (spec section 24) -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PACE Tracker">
+<link rel="apple-touch-icon" href="assets/iu29-logo.png">
+
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2/lib/msal-browser.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Sign-in gate ─────────────────────────────────────────────── -->
+  <section class="screen active" data-screen="signin">
+    <div class="gate">
+      <img src="assets/iu29-logo.png" alt="" class="gate-logo" onerror="this.style.display='none'">
+      <h1 class="gate-title">PACE Room Tracker</h1>
+      <p class="gate-sub">IU29 Special Education</p>
+      <button class="btn btn-primary btn-huge" id="signInBtn">Sign in with Microsoft</button>
+    </div>
+  </section>
+
+  <!-- ── Generic loading gate ─────────────────────────────────────── -->
+  <section class="screen" data-screen="loading">
+    <div class="gate">
+      <div class="spinner" aria-hidden="true"></div>
+      <p class="gate-status" id="loadingStatus">Loading…</p>
+    </div>
+  </section>
+
+  <!-- ── Unauthorized ─────────────────────────────────────────────── -->
+  <section class="screen" data-screen="unauthorized">
+    <div class="gate">
+      <h1 class="gate-title">Not Authorized</h1>
+      <p class="gate-status" id="unauthorizedMsg">Your account is not approved for PACE Room Tracker.</p>
+      <button class="btn btn-secondary btn-lg" id="signOutFromUnauthBtn">Sign Out</button>
+    </div>
+  </section>
+
+  <!-- ── HOME: choose room ────────────────────────────────────────── -->
+  <section class="screen" data-screen="home">
+    <div class="panel-inner center-content">
+      <h1 class="app-title">PACE Room Tracker</h1>
+      <div class="room-picker">
+        <button class="room-card" data-room="pace-room-1">
+          <span class="room-card-label">PACE Room 1</span>
+        </button>
+        <button class="room-card" data-room="pace-room-2">
+          <span class="room-card-label">PACE Room 2</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── ROOM WORKSPACE ───────────────────────────────────────────── -->
+  <section class="screen" data-screen="room">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="home">&larr; Rooms</button>
+      <h2 class="panel-title" id="roomTitle">PACE ROOM</h2>
+      <button class="btn-text" data-nav="recent">Recent</button>
+    </header>
+    <div class="panel-inner">
+      <button class="btn btn-primary btn-huge btn-full" id="newStudentBtn">+ Student Entering PACE</button>
+
+      <h3 class="section-label">Currently in PACE</h3>
+      <div id="currentlyInPace" class="current-list">
+        <p class="empty-hint">Loading…</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── STUDENT SELECT ───────────────────────────────────────────── -->
+  <section class="screen" data-screen="student">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="room">&larr; Cancel</button>
+      <h2 class="panel-title">Who Entered PACE?</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <input type="text" id="studentSearch" class="search-input" placeholder="Search students…" autocomplete="off">
+      <div id="studentGrid" class="student-grid"><p class="empty-hint">Loading students…</p></div>
+    </div>
+  </section>
+
+  <!-- ── DUPLICATE WARNING ────────────────────────────────────────── -->
+  <section class="screen" data-screen="duplicate">
+    <div class="panel-inner center-content">
+      <h2 class="gate-title">Student Already In PACE</h2>
+      <p class="gate-status" id="duplicateMsg"></p>
+      <div class="stacked-actions">
+        <button class="btn btn-primary btn-lg btn-full" id="dupViewBtn">View Open Visit</button>
+        <button class="btn btn-secondary btn-lg btn-full" data-nav="student">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── REASON ───────────────────────────────────────────────────── -->
+  <section class="screen" data-screen="reason">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="student">&larr; Back</button>
+      <h2 class="panel-title">What Brought Them To PACE?</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <div class="chip-grid" id="reasonChips"></div>
+      <button class="btn btn-primary btn-lg btn-full sticky-next" id="reasonNextBtn" disabled>Next</button>
+    </div>
+  </section>
+
+  <!-- ── SUPPORT ──────────────────────────────────────────────────── -->
+  <section class="screen" data-screen="support">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="reason">&larr; Back</button>
+      <h2 class="panel-title">What Support Was Provided?</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <div class="chip-grid" id="supportChips"></div>
+      <button class="btn btn-primary btn-lg btn-full sticky-next" id="supportNextBtn" disabled>Next</button>
+    </div>
+  </section>
+
+  <!-- ── SCM ──────────────────────────────────────────────────────── -->
+  <section class="screen" data-screen="scm">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="support">&larr; Back</button>
+      <h2 class="panel-title">Was SCM Required?</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner center-content">
+      <div class="yesno-row">
+        <button class="btn-yesno" id="scmYesBtn" data-value="true">YES</button>
+        <button class="btn-yesno" id="scmNoBtn" data-value="false">NO</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── NOTES ────────────────────────────────────────────────────── -->
+  <section class="screen" data-screen="notes">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="scm">&larr; Back</button>
+      <h2 class="panel-title">Notes</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <button class="btn btn-secondary btn-lg btn-full" id="addNoteBtn">+ Add Note (Optional)</button>
+      <textarea id="noteText" class="note-textarea hidden" rows="6" placeholder="Optional note…" maxlength="500"></textarea>
+      <button class="btn btn-primary btn-lg btn-full sticky-next" id="notesNextBtn">Next</button>
+    </div>
+  </section>
+
+  <!-- ── CONFIRM ──────────────────────────────────────────────────── -->
+  <section class="screen" data-screen="confirm">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="notes">&larr; Back</button>
+      <h2 class="panel-title">Ready To Log</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <div class="confirm-card" id="confirmCard"></div>
+      <button class="btn btn-primary btn-huge btn-full sticky-next" id="saveEntryBtn">SAVE PACE ENTRY</button>
+    </div>
+
+    <!-- Sync failure overlay (spec section 16) -->
+    <div class="overlay hidden" id="syncErrorOverlay">
+      <div class="overlay-card">
+        <h3>Unable to sync with SharePoint.</h3>
+        <p id="syncErrorDetail" class="gate-status"></p>
+        <div class="stacked-actions">
+          <button class="btn btn-primary btn-lg btn-full" id="tryAgainBtn">Try Again</button>
+          <button class="btn btn-secondary btn-lg btn-full" id="returnFromErrorBtn">Return</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save success overlay (spec section 15) -->
+    <div class="overlay hidden" id="savedOverlay">
+      <div class="overlay-card center-content">
+        <div class="save-check">&#10003;</div>
+        <p class="gate-status">Student entered into PACE</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── EXIT ─────────────────────────────────────────────────────── -->
+  <section class="screen" data-screen="exit">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="room">&larr; Cancel</button>
+      <h2 class="panel-title">Student Leaving PACE</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <div class="confirm-card" id="exitCard"></div>
+      <button class="btn btn-primary btn-huge btn-full sticky-next" id="confirmExitBtn">CONFIRM EXIT</button>
+    </div>
+
+    <div class="overlay hidden" id="exitSyncErrorOverlay">
+      <div class="overlay-card">
+        <h3>Unable to sync with SharePoint.</h3>
+        <p id="exitSyncErrorDetail" class="gate-status"></p>
+        <div class="stacked-actions">
+          <button class="btn btn-primary btn-lg btn-full" id="exitTryAgainBtn">Try Again</button>
+          <button class="btn btn-secondary btn-lg btn-full" id="exitReturnBtn">Return</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── RECENT (read only) ───────────────────────────────────────── -->
+  <section class="screen" data-screen="recent">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="room">&larr; Back</button>
+      <h2 class="panel-title">Recent Activity</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <div id="recentList" class="recent-list"><p class="empty-hint">Loading…</p></div>
+      <p class="correction-hint">Need to correct an entry? Contact an administrator.</p>
+    </div>
+  </section>
+
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="config.js"></script>
+<script src="auth.js"></script>
+<script src="graph.js"></script>
+<script src="roster.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

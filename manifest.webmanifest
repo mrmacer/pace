@@ -1,0 +1,14 @@
+{
+  "name": "PACE Room Tracker",
+  "short_name": "PACE Tracker",
+  "description": "IU29 PACE room visit logging kiosk",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f1f5f9",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "assets/iu29-logo.png", "sizes": "512x321", "type": "image/png", "purpose": "any" }
+  ]
+}

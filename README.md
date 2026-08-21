@@ -10,6 +10,18 @@ administrators through MAC Walkthrough's dashboard/reports.
 PACE ROOM iPad → PACE Room Tracker → Microsoft Graph → IEP_Pace_Visits → MAC Walkthrough
 ```
 
+Entry workflow (as of PATCH 004):
+
+```
+Home → Room → Behavior Specialist → Teacher → Student → Visit Info →
+Reason → Support → SCM → Notes → Confirm → Save → (back to) Teacher
+```
+
+Saving returns to **Teacher**, not Room — the same specialist commonly logs
+several students in a row, often for the same teacher. Room and Specialist
+persist for the whole room session; Teacher/Student/visit fields reset each
+time. See `app.js`'s `enterRoom()`/`resetTrip()`/save-handler comments.
+
 ## What was reused from MAC Walkthrough
 
 Inspected at `~/Projects/01-IU29/MAC-Walkthrough` before writing any code,
@@ -26,10 +38,13 @@ per this project's build instructions. Reused directly (not reinvented):
   - `IEP_Students_2026_27` — student roster (`CONFIG.LISTS.students`),
     filtered to `Active` + `PACE Enabled`.
   - `IEP_Pace_Visits` — the shared PACE record list.
-- **`IEP_Pace_Visits` field mapping** (display names, exactly as MAC
-  Walkthrough's `GRAPH.savePaceVisit` writes them): `Entry ID`, `PACE
-  Room`, `Student`, `Date`, `Time In`, `Time Out`, `Behavior`,
-  `Interventions`, `SCM Used`, `Notes`, `Submitted By`, `Submitted At`.
+- **`IEP_Pace_Visits` field mapping** — *initially* copied from MAC
+  Walkthrough's `GRAPH.savePaceVisit` display names, but **PATCH 003
+  discovered the live list actually in use is not identical** to what MAC
+  Walkthrough's source implied — see "Known gaps" below for the corrected,
+  schema-verified mapping. Lesson: MAC Walkthrough's *source code* was
+  inspected for this, never the *live schema* directly, until Patch 003's
+  in-app diagnostic actually queried it.
 - **`PACE Room` values** — kept as the same raw slugs MAC Walkthrough
   already writes (`pace-room-1` / `pace-room-2`), not display labels, so
   existing/future admin reports keep working across both apps.
@@ -99,24 +114,112 @@ first, if this is the first deploy) when ready.
 
 ## Known gaps / decisions made without further data model changes
 
-- **`Return Status`** exists as a column on `IEP_Pace_Visits` (MAC
-  Walkthrough's form asks it) but this kiosk's entry flow does not include
-  that question — the spec's Reason → Support → SCM → Notes flow has no
-  return-status step. This app never writes that field; it's left blank on
-  rows it creates. An admin can still fill it in later via MAC Walkthrough
-  or SharePoint directly.
+### Live `IEP_Pace_Visits` schema (verified by PATCH 003's in-app diagnostic — authoritative)
+
+| Concept | Live column | Type | Status |
+|---|---|---|---|
+| Student | `Student` | text | correct, unchanged |
+| Date | `Date` | **dateTime** (not text — see caveat below) | correct, unchanged |
+| Time In / Time Out | `Time In` / `Time Out` | text | correct, unchanged |
+| Duration | `Duration` | number | **fixed in PATCH 003** — was never sent; now sends whole minutes from `visitDurationMinutes()` |
+| Reason/Behavior | `Reason` | choice | **fixed in PATCH 003** — app was sending `"Behavior"`, which doesn't exist |
+| Interventions/Support | `Intervention Used` | choice | **fixed in PATCH 003** — app was sending `"Interventions"`, which doesn't exist |
+| Notes | `Notes` | text | correct, unchanged |
+| Staff identity | `Staff Member` | **personOrGroup** | **not written — see below** |
+| Entry ID (dedupe key) | *(none)* | — | **not a real column — see below** |
+| **PACE Room** | *(none)* | — | **not a real column — see below, most significant gap** |
+| SCM | *(none)* | — | **not a real column — see below** |
+| Submitted At | *(none)* | — | not needed — SharePoint's own system `Created` timestamp already covers this |
+| Return Status | `Return Status` | choice | exists, intentionally unused — see below |
+
+### Open gaps this app cannot close on its own
+
+- **`PACE Room` has no matching live column at all.** This is the most
+  significant open gap: every production visit this app has ever written
+  has no way to say which room it came from. The app still sends
+  `"PACE Room": entry.paceRoom` (harmless — silently dropped if unmapped,
+  and starts working immediately with zero code change the moment a
+  matching column exists), but **this needs a decision**: either an admin
+  adds a room-identifying column, or there's an existing mechanism for
+  this the app hasn't been told about. One direct, currently-live
+  consequence: the Recent screen's per-room filter
+  (`v["PACE Room"] === STATE.room`) will show nothing for real production
+  rows until this is resolved, since every row's `PACE Room` is blank.
+- **`Staff Member` is a Person field (`personOrGroup`), not text.**
+  Writing to it requires resolving the signed-in user to a SharePoint
+  site-user id first (a separate Graph call this project has no
+  infrastructure for) and a different payload shape
+  (`StaffMemberLookupId`, not a plain string) — `mapFields()` only does
+  flat display-name→internal-name value assignment, nothing Person-field
+  aware. Per instruction, this was reported rather than improvised. The
+  app still sends `"Submitted By"` (also not a real column — dropped
+  harmlessly) for the same reason: **no staff identity is currently
+  captured anywhere in production SharePoint.**
+- **PATCH 004 confirms the same `Staff Member` gap a second, independent
+  way**: the selected Behavior Specialist (`STATE.staffMember`) has the
+  identical problem — no infrastructure to resolve a plain name to a
+  SharePoint site-user id. **PATCH 005** made the specialist *list itself*
+  dynamic (loaded from `IEP_Users2`, `Active` + `Role = "Behavior
+  Specialist"`, via `GRAPH.getActiveUsersByRole()`/
+  `PACE_DATA.getSpecialists()`) and confirmed authorization was never the
+  blocker here — `AUTH.isAuthenticated` only checks `Active`, never
+  `Role`, so any Active Behavior Specialist row already signs in
+  successfully with zero auth code changes. `CONFIG.BEHAVIOR_SPECIALISTS`
+  (the old hardcoded 12) is now a **temporary fallback only**, used if the
+  live `IEP_Users2` query fails or returns zero rows — remove it (and the
+  fallback branch in `pace-data.js`'s `getSpecialists()`) once dynamic
+  loading is confirmed against real IEP_Users2 data with actual Behavior
+  Specialist rows added. Still true regardless: **no `Teacher` column exists on
+  `IEP_Pace_Visits` at all.** Both Specialist and Teacher are fully
+  functional app state (drive the new Specialist → Teacher → Student
+  screens, shown on Confirm) but are **not** written to SharePoint —
+  intentionally, per instruction not to invent a column or hack around a
+  Person field. Demo mode still stores both (`"Staff Member"`, `"Teacher"`)
+  for parity/completeness, same as the other not-yet-mappable fields above.
+- **No SCM-related column exists in the live list at all** — not `SCM
+  Used`, not `SCM`, nothing. The app's "Was SCM Required?" screen answer
+  is not persisted in production today. Still sent (`"SCM Used"`) for the
+  same forward-compatibility reason as above.
+- **`Entry ID` is not a real column.** The old SharePoint-side duplicate
+  lookup (`findListItemByDisplayField(..., "Entry ID", ...)`) was
+  therefore throwing on *every single save*, silently swallowed by a
+  `.catch`, after fetching the *entire* `IEP_Pace_Visits` list first for
+  no benefit. **Removed in PATCH 003.** `STATE.saving` (`app.js`) remains
+  the actual duplicate-tap guard, exactly as it already was in practice.
+- **`Reason`/`Intervention Used` are Choice-type columns**, and this kiosk
+  lets staff select *multiple* reasons/supports (joined with `", "` into
+  one string, unchanged behavior from before). Whether these Choice
+  columns allow multiple selections wasn't captured by the diagnostic's
+  schema query — if either is single-select-only, a save with more than
+  one reason/support chosen may be rejected by Graph. Watch for this on
+  the next manual production test.
+- **`Date` is a true `dateTime` column**, not text. The app writes a bare
+  `"YYYY-MM-DD"` string (as before) — Graph/SharePoint accepts this
+  (confirmed populated on the test row) and this app's own reads are
+  unaffected (`dateOnly()` already normalizes defensively). The only
+  caveat: SharePoint's *own* native list views may display the stored
+  value with a timezone-shifted time-of-day artifact (common for
+  date-only values in a DateTime column) — cosmetic in SharePoint's UI
+  only, not a data-correctness issue for this app.
+- **`Return Status`** exists (`choice`) but this kiosk's flow has no
+  return-status question — never written, left blank on every row. An
+  admin can fill it in via MAC Walkthrough or SharePoint directly.
 - **Device identity** (spec §31, e.g. "PACE Room 1 iPad") — no SharePoint
-  column exists for this on `IEP_Pace_Visits` today, and the project
-  instructions say not to invent internal field names. The room iPad's
-  identity is inferred from which room the staff member picked (stored
-  locally per-device for "remember last room"), but it is **not** written
-  to SharePoint. If per-device provenance is wanted later, an admin should
-  add a `Device` (single line text) column to `IEP_Pace_Visits` and it can
-  be wired in with one line in `graph.js`.
-- **Pagination**: added `@odata.nextLink` following to `GRAPH.getListItems`
-  (MAC Walkthrough's version does not page) — `IEP_Pace_Visits` will grow
-  past Graph's ~200-item page size within a school year, and "Currently in
+  column exists for this either. Inferred from the selected room and kept
+  local-only (remembers last room per device), never written to
+  SharePoint.
+- **Pagination**: `GRAPH.getListItems` follows `@odata.nextLink` (MAC
+  Walkthrough's version does not) — `IEP_Pace_Visits` will grow past
+  Graph's ~200-item page size within a school year, and "Currently in
   PACE" must never silently miss a recent entry.
+
+### Temporary diagnostic tool
+
+PATCH 003 added a production-only, read-only "Run SharePoint Diagnostic"
+button (Home screen) — see `diagnostic.js`, marked `TEMPORARY PATCH 003
+DIAGNOSTIC` everywhere it touches `index.html`/`app.js`/`sw.js`. Remove all
+four marked spots once the mapping above is confirmed stable in
+production and no longer needed.
 
 ## Manual configuration required before first sign-in
 

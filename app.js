@@ -1,8 +1,10 @@
 /* ─────────────────────────────────────────────────────────────────────────
    PACE Room Tracker — App controller
-   Horizontal-panel kiosk workflow: Home → Room → Student → Reason →
-   Support → SCM → Notes → Confirm → Save, plus Room's own Exit and Recent
-   panels. See README.md for the phase-by-phase build notes.
+   Horizontal-panel kiosk workflow: Home → Room → Specialist → Teacher →
+   Student → Visit Info → Reason → Support → SCM → Notes → Confirm → Save,
+   plus Room's own Exit and Recent panels. Save returns to Teacher (not
+   Room) — see PATCH 004 in the save handler. See README.md for the
+   phase-by-phase build notes.
    ───────────────────────────────────────────────────────────────────────── */
 
 /* ── Screen navigation (deterministic slide, no history stack needed —
@@ -42,6 +44,8 @@ function nav(name, direction = "forward") {
 // Duplicate screen's Cancel button point at "student"), so this must use
 // querySelectorAll, not querySelector, or only the first one wires up.
 const BACK_NAV_PRERENDER = {
+  specialist: () => renderSpecialistGrid(),
+  teacher: () => renderTeacherGrid(),
   student: () => renderStudentGrid(),
   visitinfo: () => renderVisitInfo()
 };
@@ -145,6 +149,15 @@ function visitDurationMinutes(timeIn, timeOut) {
 const STATE = {
   room: null,
   paceVisits: [],       // cached IEP_Pace_Visits rows (display-name keyed) for the active room's day
+  // PATCH 004: intentionally separate from AUTH's authenticated Microsoft
+  // identity — staffMember is the selected Behavior Specialist (PATCH
+  // 005: loaded dynamically from IEP_Users2, see pace-data.js's
+  // getSpecialists()), never conflated with who actually signed in.
+  // Sticky for the whole room session (not cleared by resetTrip()) since
+  // the same specialist typically logs several visits in a row — see
+  // enterRoom()/"Change Staff" for where it DOES reset.
+  staffMember: null,
+  teacher: null,         // selected teacher name — narrows the Student screen
   student: null,         // roster entry
   reasons: [],
   supports: [],
@@ -159,7 +172,11 @@ const STATE = {
   duplicateTarget: null  // the open-visit row that blocked a new entry
 };
 
+// Clears everything specific to ONE visit-in-progress. Deliberately does
+// NOT touch STATE.staffMember (sticky across a room session — see STATE
+// declaration above) or STATE.room.
 function resetTrip() {
+  STATE.teacher = null;
   STATE.student = null;
   STATE.reasons = [];
   STATE.supports = [];
@@ -258,6 +275,12 @@ document.querySelectorAll(".room-card").forEach(btn => {
 
 async function enterRoom(roomId, direction) {
   STATE.room = roomId;
+  // PATCH 004: a (re-)entered room is a fresh session — re-confirm the
+  // specialist rather than silently carrying one over from a previous
+  // room or app launch. resetTrip() also clears any stale teacher/student
+  // left over from an incomplete attempt.
+  STATE.staffMember = null;
+  resetTrip();
   localStorage.setItem(roomStorageKey(), roomId);
   const room = CONFIG.ROOMS.find(r => r.id === roomId);
   document.getElementById("roomTitle").textContent = (room?.label || roomId).toUpperCase();
@@ -326,33 +349,141 @@ function renderCurrentlyInPace() {
 // Keep elapsed-minute labels fresh without a full reload.
 setInterval(() => { if (currentScreenName === "room") renderCurrentlyInPace(); }, 30000);
 
-document.getElementById("newStudentBtn").addEventListener("click", () => openStudentScreen());
+document.getElementById("newStudentBtn").addEventListener("click", () => openSpecialistScreen());
 
-/* ── STUDENT SELECT ───────────────────────────────────────────────────── */
+/* ── BEHAVIOR SPECIALIST (PATCH 004; PATCH 005: dynamic from IEP_Users2) ── */
 
-// Loaded once per visit to the Student screen (via PACE_DATA.getStudents(),
+// Loaded once per Specialist screen visit (via PACE_DATA.getSpecialists(),
+// which branches on APP_MODE) and rendered synchronously from here on —
+// same caching pattern as cachedStudents below.
+let cachedSpecialists = [];
+
+async function openSpecialistScreen() {
+  resetTrip(); // fresh attempt — clear any stale teacher/student, but staffMember stays sticky
+  document.getElementById("specialistGrid").innerHTML = `<p class="empty-hint">Loading…</p>`;
+  nav("specialist", "forward");
+  try {
+    cachedSpecialists = await PACE_DATA.getSpecialists();
+  } catch (err) {
+    console.error("Failed to load Behavior Specialists:", err);
+    cachedSpecialists = [];
+  }
+  renderSpecialistGrid();
+}
+
+function renderSpecialistGrid() {
+  const grid = document.getElementById("specialistGrid");
+  if (cachedSpecialists.length === 0) {
+    grid.innerHTML = `<p class="empty-hint">No Behavior Specialists found.</p>`;
+    return;
+  }
+  grid.innerHTML = cachedSpecialists.map(name => `
+    <button class="student-card${STATE.staffMember === name ? " selected" : ""}" data-specialist="${escHtml(name)}">${escHtml(name)}</button>
+  `).join("");
+  grid.querySelectorAll("[data-specialist]").forEach(btn => {
+    btn.addEventListener("click", () => selectSpecialist(btn.dataset.specialist));
+  });
+}
+
+function selectSpecialist(name) {
+  STATE.staffMember = name;
+  openTeacherScreen();
+}
+
+document.getElementById("changeStaffBtn").addEventListener("click", () => {
+  STATE.staffMember = null;
+  renderSpecialistGrid();
+  nav("specialist", "back");
+});
+
+/* ── TEACHER (PATCH 004) — dynamically derived from the roster, never
+   hardcoded; only teachers with at least one currently-eligible student
+   appear ──────────────────────────────────────────────────────────────── */
+
+// Loaded once per Specialist→Teacher entry (via PACE_DATA.getStudents(),
 // which itself branches on APP_MODE) and filtered synchronously from here
-// on so typing in the search box doesn't re-fetch on every keystroke.
+// on — the Teacher grid groups it, the Student grid narrows it further, and
+// neither re-fetches on every render.
 let cachedStudents = [];
 
-async function openStudentScreen() {
-  resetTrip();
-  document.getElementById("studentSearch").value = "";
-  document.getElementById("studentGrid").innerHTML = `<p class="empty-hint">Loading students…</p>`;
-  nav("student", "forward");
+async function openTeacherScreen() {
+  document.getElementById("teacherGrid").innerHTML = `<p class="empty-hint">Loading…</p>`;
+  document.getElementById("staffContextLine").textContent = STATE.staffMember || "";
+  nav("teacher", "forward");
   try {
     cachedStudents = await PACE_DATA.getStudents();
   } catch (err) {
     console.error("Failed to load students:", err);
     cachedStudents = [];
   }
+  renderTeacherGrid();
+}
+
+// Trim + drop blanks + dedupe + sort — spec: "normalize teacher names
+// safely." Only ever built from the already active+PACE-enabled roster
+// PACE_DATA.getStudents() returns, so a teacher with zero eligible
+// students today simply never appears.
+function getTeacherList(students) {
+  const seen = new Set();
+  const names = [];
+  students.forEach(s => {
+    const t = (s.teacher || "").trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    names.push(t);
+  });
+  return names.sort((a, b) => a.localeCompare(b));
+}
+
+function studentsForTeacher(teacherName) {
+  return cachedStudents.filter(s => (s.teacher || "").trim() === teacherName);
+}
+
+function renderTeacherGrid() {
+  const grid = document.getElementById("teacherGrid");
+  document.getElementById("staffContextLine").textContent = STATE.staffMember || "";
+  const teachers = getTeacherList(cachedStudents);
+  if (teachers.length === 0) {
+    grid.innerHTML = `<p class="empty-hint">No teachers with PACE-eligible students found.</p>`;
+    return;
+  }
+  grid.innerHTML = teachers.map(t => {
+    const count = studentsForTeacher(t).length;
+    return `<button class="student-card${STATE.teacher === t ? " selected" : ""}" data-teacher="${escHtml(t)}">
+      <span>${escHtml(t)}</span><span class="teacher-count">${count} student${count !== 1 ? "s" : ""}</span>
+    </button>`;
+  }).join("");
+  grid.querySelectorAll("[data-teacher]").forEach(btn => {
+    btn.addEventListener("click", () => selectTeacher(btn.dataset.teacher));
+  });
+}
+
+function selectTeacher(teacherName) {
+  // spec §6: only relevant when returning to Teacher from later in the
+  // chain and picking someone different — drop a student who doesn't
+  // belong to the newly-selected teacher rather than silently carrying
+  // them over.
+  if (STATE.student && (STATE.student.teacher || "").trim() !== teacherName) {
+    STATE.student = null;
+  }
+  STATE.teacher = teacherName;
+  openStudentScreen();
+}
+
+/* ── STUDENT SELECT ───────────────────────────────────────────────────── */
+
+function openStudentScreen() {
+  document.getElementById("teacherContextLine").textContent = STATE.teacher || "";
+  document.getElementById("studentSearch").value = "";
   renderStudentGrid();
+  nav("student", "forward");
 }
 
 function renderStudentGrid(filter = "") {
   const grid = document.getElementById("studentGrid");
+  document.getElementById("teacherContextLine").textContent = STATE.teacher || "";
   const q = filter.trim().toLowerCase();
-  const students = cachedStudents.filter(s => !q || s.name.toLowerCase().includes(q));
+  const students = studentsForTeacher(STATE.teacher).filter(s => !q || s.name.toLowerCase().includes(q));
   if (students.length === 0) {
     grid.innerHTML = `<p class="empty-hint">No matching students.</p>`;
     return;
@@ -530,6 +661,8 @@ function renderConfirmCard() {
   const card = document.getElementById("confirmCard");
   card.innerHTML = `
     <div class="confirm-row"><span class="confirm-row-label">Room</span><span class="confirm-row-value">${escHtml(roomLine)}</span></div>
+    <div class="confirm-row"><span class="confirm-row-label">Specialist</span><span class="confirm-row-value">${escHtml(STATE.staffMember || "")}</span></div>
+    <div class="confirm-row"><span class="confirm-row-label">Teacher</span><span class="confirm-row-value">${escHtml(STATE.teacher || "")}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Student</span><span class="confirm-row-value">${escHtml(STATE.student?.name || "")}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Visit</span><span class="confirm-row-value">${escHtml(fmtLongDate(STATE.date))}</span></div>
     <div class="confirm-row">
@@ -563,10 +696,21 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   const entry = {
     id: STATE.submissionId,
     paceRoom: STATE.room,
+    // PATCH 004: logical payload only — see graph.js for exactly why
+    // neither is currently written to SharePoint (no live "Teacher"
+    // column at all; "Staff Member" is a Person-type column this project
+    // has no write infrastructure for).
+    staffMember: STATE.staffMember,
+    teacher: STATE.teacher,
     studentName: STATE.student.name,
     date: STATE.date,
     timeIn: STATE.timeIn,
     timeOut: STATE.timeOut,
+    // PATCH 003: the live IEP_Pace_Visits list has a real "Duration"
+    // (Number) column — reusing the same visitDurationMinutes() the Visit
+    // Info/Confirm screens already display, rather than a second
+    // calculation. Already validated non-null just above.
+    durationMinutes: visitDurationMinutes(STATE.timeIn, STATE.timeOut),
     behaviors: STATE.reasons,
     interventions: STATE.supports,
     scmUsed: STATE.scmUsed,
@@ -583,8 +727,14 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
     await refreshRoomVisits();
     setTimeout(() => {
       document.getElementById("savedOverlay").classList.add("hidden");
+      // PATCH 004: return to Teacher selection, not all the way back to
+      // Room — the same specialist (kept, resetTrip() doesn't touch it)
+      // is likely about to log another visit, possibly for the same
+      // teacher's next student. Room + specialist identity stay intact;
+      // teacher/student/visit-specific fields are cleared.
       resetTrip();
-      nav("room", "back");
+      renderTeacherGrid();
+      nav("teacher", "back");
     }, 900);
   } catch (err) {
     console.error("PACE save failed:", err);
@@ -678,7 +828,7 @@ document.querySelector('[data-nav="recent"]').addEventListener("click", async ()
     const timeOut = String(v["Time Out"] || "").trim();
     const dur = timeOut ? `${minutesBetween(v["Time In"], timeOut)} min` : "open";
     const subParts = [`${fmt12h(v["Time In"])} – ${timeOut ? fmt12h(timeOut) : "—"}`];
-    if (v.Behavior) subParts.push(v.Behavior);
+    if (v.Reason) subParts.push(v.Reason); // PATCH 003: live column is "Reason", not "Behavior"
     if (v["SCM Used"]) subParts.push("SCM");
     return `<div class="recent-row">
       <div class="recent-row-top"><span>${escHtml(v.Student || "")}${v.demo ? ' <span class="badge-simulated">SIMULATED</span>' : ""}</span><span>${dur}</span></div>

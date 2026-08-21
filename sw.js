@@ -9,7 +9,7 @@
    "Unable to sync" retry screen when offline, per the app's design).
    ───────────────────────────────────────────────────────────────────────── */
 
-const CACHE_NAME = "pace-tracker-shell-v5"; // bumped: PATCH 003 temporary diagnostic added
+const CACHE_NAME = "pace-tracker-shell-v8"; // bumped: PATCH 005 dynamic Behavior Specialists
 const SHELL_FILES = [
   "./",
   "./index.html",

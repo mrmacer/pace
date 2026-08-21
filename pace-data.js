@@ -36,5 +36,27 @@ const PACE_DATA = {
   async closeVisit(id, timeOut) {
     if (APP_MODE === "demo") return DemoStorage.updateVisit(id, { "Time Out": timeOut });
     return GRAPH.closePaceVisit(id, timeOut);
+  },
+
+  // PATCH 005: Behavior Specialist names, sorted alphabetically. Demo uses
+  // its own fake roster (DEMO_SPECIALISTS); production loads Active rows
+  // with Role = "Behavior Specialist" from IEP_Users2 via the new
+  // GRAPH.getActiveUsersByRole(). Falls back to the old hardcoded
+  // CONFIG.BEHAVIOR_SPECIALISTS list ONLY if the live call fails or
+  // returns nothing (e.g. the IU29 Behavior Specialist rows haven't been
+  // added to IEP_Users2 yet) — this fallback is meant to be TEMPORARY;
+  // remove CONFIG.BEHAVIOR_SPECIALISTS and this catch once dynamic
+  // loading is confirmed working against real production data (can't be
+  // verified from here — no live Graph session in this environment).
+  async getSpecialists() {
+    if (APP_MODE === "demo") return DEMO_SPECIALISTS.slice();
+    try {
+      const specialists = await GRAPH.getActiveUsersByRole("Behavior Specialist");
+      if (specialists.length > 0) return specialists.map(s => s.name);
+      console.warn("IEP_Users2 returned zero Active \"Behavior Specialist\" rows — falling back to CONFIG.BEHAVIOR_SPECIALISTS.");
+    } catch (err) {
+      console.error("Failed to load Behavior Specialists from IEP_Users2:", err.message || err);
+    }
+    return CONFIG.BEHAVIOR_SPECIALISTS.slice();
   }
 };

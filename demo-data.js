@@ -8,13 +8,16 @@
    uses.
    ───────────────────────────────────────────────────────────────────────── */
 
+// PATCH 004: `teacher` added so demo mirrors the real Teacher → Student
+// grouping (roster.js now reads the same live column). Fake teacher names,
+// same as the students — nothing here is a real IU29 person.
 const DEMO_STUDENTS = [
-  { id: "SIM-001", name: "Alex R.",   active: true },
-  { id: "SIM-002", name: "Jordan M.", active: true },
-  { id: "SIM-003", name: "Taylor S.", active: true },
-  { id: "SIM-004", name: "Casey L.",  active: true },
-  { id: "SIM-005", name: "Morgan T.", active: true },
-  { id: "SIM-006", name: "Riley C.",  active: true }
+  { id: "SIM-001", name: "Alex R.",   teacher: "Mrs. Ashford", active: true },
+  { id: "SIM-002", name: "Jordan M.", teacher: "Mrs. Ashford", active: true },
+  { id: "SIM-003", name: "Taylor S.", teacher: "Mr. Bellamy",  active: true },
+  { id: "SIM-004", name: "Casey L.",  teacher: "Mr. Bellamy",  active: true },
+  { id: "SIM-005", name: "Morgan T.", teacher: "Ms. Castillo", active: true },
+  { id: "SIM-006", name: "Riley C.",  teacher: "Ms. Castillo", active: true }
 ];
 
 const DEMO_USER = {
@@ -22,6 +25,13 @@ const DEMO_USER = {
   name: "Demo Staff",
   role: "PACE Staff"
 };
+
+// PATCH 005: Behavior Specialists now come from a real SharePoint people
+// list (IEP_Users2, Role = "Behavior Specialist") in production — so, same
+// as DEMO_STUDENTS, demo mode gets its OWN fake names rather than reusing
+// the real 12 from CONFIG.BEHAVIOR_SPECIALISTS (that constant is now a
+// production-only fallback — see pace-data.js).
+const DEMO_SPECIALISTS = ["Dana Fielding", "Marcus Webb", "Priya Anand"];
 
 const DemoStorage = {
   load() {
@@ -51,6 +61,15 @@ const DemoStorage = {
   //
   // PATCH 001: completed-visit model — entry.timeOut now arrives already
   // filled in (collected before save, not added later via updateVisit).
+  //
+  // PATCH 003 (demo parity): renamed "Behavior"->"Reason" and
+  // "Interventions"->"Intervention Used", and added "Duration", to match
+  // GRAPH.savePaceVisit()'s live-schema-reconciled keys — app.js's render
+  // code reads these by the same names for both modes, so the two must
+  // stay in lockstep. "PACE Room"/"SCM Used"/"Submitted By"/"Submitted At"
+  // are kept here even though the live SharePoint list currently has no
+  // matching column for them (see README) — demo still models the full
+  // logical visit regardless of what production can persist today.
   createVisit(entry) {
     const data = this.load();
     const id = entry.id || crypto.randomUUID();
@@ -63,18 +82,26 @@ const DemoStorage = {
     const visit = {
       id,
       demo: true,
-      "PACE Room":     entry.paceRoom || "",
-      "Student":       entry.studentName || "",
-      "Date":          entry.date || "",
-      "Time In":       entry.timeIn || "",
-      "Time Out":      entry.timeOut || "",
-      "Behavior":      Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
-      "Interventions": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
-      "SCM Used":      entry.scmUsed === true,
-      "Notes":         entry.notes || "",
-      "Submitted By":  entry.submittedByName || DEMO_USER.name,
-      "Submitted At":  entry.timestamp || new Date().toISOString(),
-      createdAt:       new Date().toISOString()
+      "PACE Room":          entry.paceRoom || "",
+      "Student":            entry.studentName || "",
+      "Date":               entry.date || "",
+      "Time In":            entry.timeIn || "",
+      "Time Out":           entry.timeOut || "",
+      "Duration":           entry.durationMinutes ?? null,
+      "Reason":             Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
+      "Intervention Used":  Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
+      "SCM Used":           entry.scmUsed === true,
+      "Notes":              entry.notes || "",
+      // PATCH 004: kept here for demo parity/completeness even though
+      // production doesn't persist either today (no live "Teacher" column
+      // on IEP_Pace_Visits at all, and "Staff Member" is a Person-type
+      // column this project has no write infrastructure for — see
+      // README). Demo still models the full logical visit.
+      "Staff Member":       entry.staffMember || "",
+      "Teacher":            entry.teacher || "",
+      "Submitted By":       entry.submittedByName || DEMO_USER.name,
+      "Submitted At":       entry.timestamp || new Date().toISOString(),
+      createdAt:            new Date().toISOString()
     };
 
     data.paceVisits.push(visit);

@@ -190,6 +190,33 @@ const GRAPH = {
     return match;
   },
 
+  // PATCH 005: reusable data-provider for "Active users with a given
+  // Role" — used for the Behavior Specialist picker, but written generic
+  // in case another role-scoped list is ever needed. Deliberately mirrors
+  // AUTH.loadStaffFromSharePoint()'s exact field-candidate reads
+  // (field_1/Name/Title, field_2/Role, field_3/Active) rather than
+  // resolving IEP_Users2 via getListSchema() the way IEP_Pace_Visits/
+  // IEP_Students_2026_27 are — this list's internal names were already
+  // being read this defensive way by proven, working production auth
+  // code, so the new method matches it instead of introducing a second,
+  // untested resolution path for the same list. Never reads/returns any
+  // email field — callers only ever see name/role/active/id.
+  async getActiveUsersByRole(role) {
+    const users  = await this.getListItems(CONFIG.LISTS.users);
+    const target = String(role || "").trim().toLowerCase();
+    return users
+      .map(user => {
+        const rawRole = user.field_2 || user.Role || "";
+        const userRole = Array.isArray(rawRole) ? rawRole[0] : rawRole;
+        const active = user.field_3 ?? user.Active;
+        const isActive = active === true || active === "Yes" || active === "true" || active === 1;
+        const name = String(user.field_1 || user.Name || user.Title || "").trim();
+        return { id: user.id, name, role: String(userRole || "").trim(), active: isActive };
+      })
+      .filter(u => u.name && u.active && u.role.toLowerCase() === target)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
   /* ── PACE-specific helpers ─────────────────────────────────────────────── */
 
   // Every list item, mapped back to DISPLAY field names via the schema, so
@@ -208,35 +235,61 @@ const GRAPH = {
     });
   },
 
-  // Creates a new PACE visit. entry.id is a stable per-submission id
-  // (reused across a retry after a failed sync) — used as the duplicate-
-  // detection key, same pattern as MAC Walkthrough's savePaceVisit/
-  // saveWalkthrough. "Return Status" is intentionally not written — that
-  // question isn't part of this app's entry flow (see README "Known gap").
+  // Creates a new PACE visit.
   //
-  // PATCH 001: completed-visit model — Time Out is now collected before
-  // save and written here at creation (same existing "Time Out" field
-  // closePaceVisit already used for the old open→close flow; no new field
-  // introduced). A row created by the current workflow is never "open."
+  // PATCH 003: reconciled against the LIVE IEP_Pace_Visits schema (see the
+  // in-app diagnostic's report, and README "Known gaps" for the full
+  // writeup). Two keys were flat-out wrong and are corrected here:
+  //   "Behavior"     -> "Reason"            (live column is "Reason")
+  //   "Interventions"-> "Intervention Used" (live column is "Intervention Used")
+  // "Duration" is a real Number column, previously never sent — added.
+  // The old "Entry ID" pre-save lookup below is REMOVED: "Entry ID" isn't
+  // a real column on the live list, so that lookup threw every single
+  // time (silently, via the .catch below it used to have) and cost a full
+  // list fetch before every save for zero benefit. STATE.saving (app.js)
+  // remains the functional duplicate-tap guard.
+  //
+  // Still sent despite no live column currently matching — kept because
+  // mapFields() already drops unmapped keys harmlessly (a console.warn,
+  // nothing more), and if a matching column is ever added to the list,
+  // these start working with no code change: "Entry ID", "PACE Room",
+  // "SCM Used", "Submitted By". "Submitted At" also has no live column,
+  // but SharePoint's own system "Created" timestamp already covers that
+  // same need automatically, so nothing is actually lost by leaving it.
+  //
+  // PATCH 004: added Behavior Specialist (STATE.staffMember) + Teacher to
+  // the app's logical entry, but NEITHER is written to SharePoint here:
+  //   - Teacher: no "Teacher" column exists on IEP_Pace_Visits at all
+  //     (confirmed by Patch 003's live schema dump). Stays UI/state only,
+  //     per instruction not to invent a column.
+  //   - Behavior Specialist -> would-be "Staff Member": same personOrGroup
+  //     column/limitation noted below for the authenticated user — the
+  //     app has no infrastructure to resolve ANY plain name (specialist
+  //     or signed-in user) to a SharePoint site-user id, so this is a
+  //     second, independent confirmation of the same gap, not a new one.
+  // NOT sent: "Staff Member" — it's a Person-type column and writing one
+  // requires new infrastructure (resolving a name to a SharePoint
+  // site-user id) this project doesn't have yet.
+  //
+  // PATCH 001: completed-visit model — Time Out is collected before save
+  // and written here at creation (the existing "Time Out" field
+  // closePaceVisit already used for the old open→close flow). A row
+  // created by the current workflow is never "open."
   async savePaceVisit(entry) {
-    const existing = await this.findListItemByDisplayField("IEP_Pace_Visits", "Entry ID", entry.id).catch(() => null);
-    if (existing) {
-      console.warn("PACE visit already exists in SharePoint:", entry.id);
-      return { duplicatePrevented: true, existingItem: existing };
-    }
     return this.createMappedListItem("IEP_Pace_Visits", {
-      "Entry ID":      entry.id,
-      "PACE Room":     entry.paceRoom     || "",
-      "Student":       entry.studentName  || "",
-      "Date":          entry.date         || "",
-      "Time In":       entry.timeIn       || "",
-      "Time Out":      entry.timeOut      || "",
-      "Behavior":      Array.isArray(entry.behaviors)     ? entry.behaviors.join(", ")     : (entry.behaviors || ""),
-      "Interventions": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
-      "SCM Used":      entry.scmUsed === true,
-      "Notes":         entry.notes        || "",
-      "Submitted By":  entry.submittedByName || "",
-      "Submitted At":  entry.timestamp    || new Date().toISOString()
+      "Entry ID":           entry.id,
+      "PACE Room":          entry.paceRoom     || "",
+      "Student":            entry.studentName  || "",
+      "Date":               entry.date         || "",
+      "Time In":            entry.timeIn       || "",
+      "Time Out":           entry.timeOut      || "",
+      "Duration":           entry.durationMinutes ?? undefined,
+      "Reason":             Array.isArray(entry.behaviors)     ? entry.behaviors.join(", ")     : (entry.behaviors || ""),
+      "Intervention Used":  Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
+      "SCM Used":           entry.scmUsed === true,
+      "Notes":              entry.notes        || "",
+      "Submitted By":       entry.submittedByName || "",
+      "Submitted At":       entry.timestamp    || new Date().toISOString()
     });
   },
 

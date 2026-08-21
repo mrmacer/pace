@@ -122,14 +122,44 @@
     </div>
   </section>
 
+  <!-- ── BEHAVIOR SPECIALIST (PATCH 004) ──────────────────────────── -->
+  <section class="screen" data-screen="specialist">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="room">&larr; Cancel</button>
+      <h2 class="panel-title">Who's Working With the Student?</h2>
+      <span></span>
+    </header>
+    <span class="room-badge"></span>
+    <div class="panel-inner">
+      <h3 class="section-label">Select Behavior Specialist</h3>
+      <div id="specialistGrid" class="student-grid"></div>
+    </div>
+  </section>
+
+  <!-- ── TEACHER (PATCH 004) — dynamically derived from the roster,
+       never hardcoded ────────────────────────────────────────────── -->
+  <section class="screen" data-screen="teacher">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="specialist">&larr; Back</button>
+      <h2 class="panel-title">Select Teacher</h2>
+      <button class="btn-text" id="changeStaffBtn">Change Staff</button>
+    </header>
+    <span class="room-badge"></span>
+    <p class="staff-context-line" id="staffContextLine"></p>
+    <div class="panel-inner">
+      <div id="teacherGrid" class="student-grid"><p class="empty-hint">Loading…</p></div>
+    </div>
+  </section>
+
   <!-- ── STUDENT SELECT ───────────────────────────────────────────── -->
   <section class="screen" data-screen="student">
     <header class="panel-header">
-      <button class="btn-back" data-nav="room">&larr; Cancel</button>
+      <button class="btn-back" data-nav="teacher">&larr; Cancel</button>
       <h2 class="panel-title">Who Entered PACE?</h2>
       <span></span>
     </header>
     <span class="room-badge"></span>
+    <p class="staff-context-line" id="teacherContextLine"></p>
     <div class="panel-inner">
       <input type="text" id="studentSearch" class="search-input" placeholder="Search students…" autocomplete="off">
       <div id="studentGrid" class="student-grid"><p class="empty-hint">Loading students…</p></div>

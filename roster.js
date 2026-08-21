@@ -30,6 +30,12 @@ const ROSTER = {
     return {
       id:          row.id != null ? String(row.id) : name,
       firstName, lastName, name,
+      // PATCH 004: previously read nowhere in this file even though both
+      // columns exist on the live roster list — needed now to group the
+      // Student screen by Teacher. Classroom carried along too (spec:
+      // "may remain available for future filtering or display").
+      teacher:     String(row["Teacher"]   || "").trim(),
+      classroom:   String(row["Classroom"] || "").trim(),
       active:      normalizeRosterBoolean(row["Active"],       true),
       paceEnabled: normalizeRosterBoolean(row["PACE Enabled"], false)
     };

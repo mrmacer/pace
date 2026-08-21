@@ -101,5 +101,18 @@ const CONFIG = {
     "Restorative conversation", "Problem-solving conference", "Break / reset",
     "Check-in / check-out", "Parent/guardian contact", "Counselor support",
     "Admin support", "Modified task", "Return-to-class plan"
+  ],
+
+  // PATCH 004 introduced this as the live picklist. PATCH 005 replaced
+  // that: production now loads Active "Behavior Specialist" rows from
+  // IEP_Users2 dynamically (see pace-data.js's getSpecialists()) — this
+  // array is now ONLY a TEMPORARY fallback for when that live call fails
+  // or returns nothing (e.g. before the SharePoint rows exist yet).
+  // TODO: remove this once dynamic loading is confirmed against real
+  // production data — see README "Known gaps."
+  BEHAVIOR_SPECIALISTS: [
+    "Sharon Morgan", "Carl Stine", "Robyn Seiler", "Kelly Higgins",
+    "Emma Brady", "Katrina Quinn", "Patrick Denmon", "Amber Clews",
+    "Kelly Marchetti", "Bruce Andruchek", "Nicole Williams", "Luke Prescott"
   ]
 };

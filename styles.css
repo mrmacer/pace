@@ -258,10 +258,25 @@ body[data-room="pace-room-2"] {
 .student-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
 .student-card {
   background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); min-height: 74px; padding: 14px; display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow); min-height: 74px; padding: 14px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px;
   text-align: center; font-size: 17px; font-weight: 700; cursor: pointer;
 }
 .student-card:active { transform: scale(.96); border-color: var(--color-primary); }
+/* PATCH 004: Specialist/Teacher cards reuse .student-card, plus a
+   selected-highlight so re-visiting the screen (e.g. via Back) shows what
+   was already picked — same visual language as .chip.selected. */
+.student-card.selected { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.student-card .teacher-count { font-size: 12px; font-weight: 600; opacity: .75; }
+
+/* Small secondary context line (e.g. selected specialist on the Teacher
+   screen, selected teacher on the Student screen) — deliberately subtle,
+   shown on one screen at a time, never stacked with the room badge. */
+.staff-context-line {
+  text-align: center; font-size: 13px; font-weight: 700; color: var(--text-secondary);
+  padding: 8px 12px 0;
+}
+.staff-context-line:empty { display: none; }
 
 /* ── Visit Info (date / time in / time out) ──────────────────────────── */
 .visit-student-name {

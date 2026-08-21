@@ -94,6 +94,55 @@ body.demo-mode .screen { top: var(--demo-banner-h); }
   min-height: 44px; padding: 8px 12px; cursor: pointer;
 }
 
+/* ── Room identity (PATCH 001) ───────────────────────────────────────────
+   Single theme mechanism: app.js sets data-room on <body> once a room is
+   selected; every themed value below is a CSS custom property keyed off
+   that one attribute, so no screen is styled individually. Colors carry
+   dark-on-light text pairings for contrast — never bare yellow-on-white. */
+body[data-room="pace-room-1"] {
+  --room-accent:       #f6c744;
+  --room-accent-dark:  #a16207;
+  --room-accent-text:  #78350f;
+  --room-accent-bg:    #fefaea;
+  --room-accent-border:#f3dd8f;
+}
+body[data-room="pace-room-2"] {
+  --room-accent:       #4ade80;
+  --room-accent-dark:  #15803d;
+  --room-accent-text:  #14532d;
+  --room-accent-bg:    #f0fdf4;
+  --room-accent-border:#bbf7d0;
+}
+
+.room-badge {
+  display: block; text-align: center; font-size: 12px; font-weight: 800;
+  letter-spacing: .03em; text-transform: uppercase;
+  color: var(--room-accent-text, var(--text-secondary));
+  background: var(--room-accent-bg, var(--surface));
+  border-bottom: 1px solid var(--room-accent-border, var(--border));
+  padding: 7px 12px; flex-shrink: 0;
+}
+.room-badge:empty { display: none; }
+
+/* Room-selection cards (Home screen) — colored by the same data-room
+   attribute already present on each button, no JS needed for this part. */
+.room-card[data-room="pace-room-1"] { border-color: var(--room-accent-border, #f3dd8f); background: #fefaea; }
+.room-card[data-room="pace-room-1"] .room-card-label   { color: #78350f; }
+.room-card[data-room="pace-room-1"] .room-card-hallway { color: #a16207; }
+.room-card[data-room="pace-room-1"]:active { border-color: #f6c744; }
+
+.room-card[data-room="pace-room-2"] { border-color: #bbf7d0; background: #f0fdf4; }
+.room-card[data-room="pace-room-2"] .room-card-label   { color: #14532d; }
+.room-card[data-room="pace-room-2"] .room-card-hallway { color: #15803d; }
+.room-card[data-room="pace-room-2"]:active { border-color: #4ade80; }
+
+.room-card-label   { display: block; font-size: 24px; font-weight: 800; }
+.room-card-hallway { display: block; font-size: 14px; font-weight: 700; letter-spacing: .04em; margin-top: 6px; }
+
+/* Visible focus states (kiosk is touch-first, but a paired keyboard/
+   switch-control user still needs this). */
+:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 2px; }
+
 .gate, .center-content {
   flex: 1;
   display: flex;
@@ -134,6 +183,9 @@ body.demo-mode .screen { top: var(--demo-banner-h); }
 .panel-inner.center-content { justify-content: center; }
 
 .app-title { font-size: 34px; font-weight: 800; text-align: center; margin-bottom: 8px; }
+/* PATCH 002: production-only, Home screen only — small and out of the way,
+   this is a kiosk, not an account dashboard. */
+.signed-in-indicator { font-size: 13px; font-weight: 600; color: var(--text-muted); margin: -4px 0 4px; }
 .section-label {
   font-size: 15px; font-weight: 700; color: var(--text-secondary);
   text-transform: uppercase; letter-spacing: .04em; margin-top: 12px;
@@ -159,11 +211,13 @@ body.demo-mode .screen { top: var(--demo-banner-h); }
 .room-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; width: min(90vw, 820px); }
 .room-card {
   background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow); min-height: 220px; display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow); min-height: 220px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
   cursor: pointer; transition: transform 120ms ease, border-color 120ms ease;
 }
 .room-card:active { transform: scale(.97); border-color: var(--color-primary); }
-.room-card-label { font-size: 26px; font-weight: 800; color: var(--text-primary); }
+/* .room-card-label / .room-card-hallway are defined once, above, next to
+   the per-room color overrides (PATCH 001) — not duplicated here. */
 
 /* ── Room workspace: currently-in-PACE list ──────────────────────────── */
 .current-list { display: flex; flex-direction: column; gap: 12px; }
@@ -193,6 +247,33 @@ body.demo-mode .screen { top: var(--demo-banner-h); }
   text-align: center; font-size: 17px; font-weight: 700; cursor: pointer;
 }
 .student-card:active { transform: scale(.96); border-color: var(--color-primary); }
+
+/* ── Visit Info (date / time in / time out) ──────────────────────────── */
+.visit-student-name {
+  font-size: 22px; font-weight: 800; text-align: center; padding: 4px 0 2px;
+}
+.form-card {
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 16px 18px;
+}
+.walk-field-label { font-size: 14px; font-weight: 700; color: var(--text-secondary); display: block; margin-bottom: 8px; }
+.req { color: var(--red); }
+.form-input-lg {
+  width: 100%; font-size: 20px; font-weight: 700; padding: 12px 10px; min-height: 52px;
+  border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-primary);
+  font-family: inherit;
+}
+/* Side-by-side on wide/landscape iPad layouts; stacks cleanly below. */
+.visit-time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 560px) {
+  .visit-time-row { grid-template-columns: 1fr; }
+}
+.visit-duration-hint { text-align: center; font-size: 14px; font-weight: 700; color: var(--color-primary); min-height: 20px; }
+.visit-time-error {
+  text-align: center; font-size: 14px; font-weight: 700; color: var(--red);
+  background: var(--red-bg); border: 1px solid var(--red-border); border-radius: var(--radius);
+  padding: 10px 14px;
+}
 
 /* ── Chips (reason / support) ─────────────────────────────────────────── */
 .chip-grid { display: flex; flex-wrap: wrap; gap: 12px; }

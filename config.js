@@ -18,7 +18,29 @@
 // "production" — the real thing: MSAL sign-in, live Graph calls, writes to
 //                IEP_Pace_Visits. See auth.js/graph.js for the guards that
 //                key off this flag.
-const APP_MODE = "demo"; // "demo" | "production"
+//
+// PATCH 002: resolved once at load, from the URL, instead of a hardcoded
+// literal — but every downstream `APP_MODE === "demo"` check (auth.js,
+// graph.js, pace-data.js, app.js) is completely unchanged, since this still
+// produces one plain "demo" | "production" string in the same constant.
+// Rule, in order:
+//   1. ?demo=1        forces demo, on ANY host — including the production
+//      URL itself, so it stays possible to demo the app publicly without
+//      ever touching real IU29 data.
+//   2. ?production=1  forces production, for local/manual verification
+//      against the real tenant from a dev server.
+//   3. Otherwise: production ONLY on the known deployed production
+//      hostname; everything else (localhost, a Vercel preview URL, a
+//      not-yet-listed custom domain) defaults to demo. Fails toward "no
+//      access to real data," never the other way.
+function resolveAppMode() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("demo")) return "demo";
+  if (params.has("production")) return "production";
+  const PRODUCTION_HOSTNAMES = ["pace-room-tracker.vercel.app"];
+  return PRODUCTION_HOSTNAMES.includes(window.location.hostname) ? "production" : "demo";
+}
+const APP_MODE = resolveAppMode(); // "demo" | "production"
 
 const DEMO_CONFIG = {
   enabled: APP_MODE === "demo",
@@ -55,9 +77,12 @@ const CONFIG = {
   // column (see its app.js: fd.get("paceRoom") is stored as-is, e.g.
   // "pace-room-1"). Keep using the same raw values so existing/future
   // admin reports keep working across both apps.
+  // hallway/color identity is presentation only — never written to
+  // SharePoint (the "PACE Room" column only ever gets the raw `id` slug
+  // above, unchanged).
   ROOMS: [
-    { id: "pace-room-1", label: "PACE Room 1" },
-    { id: "pace-room-2", label: "PACE Room 2" }
+    { id: "pace-room-1", label: "PACE Room 1", hallway: "Yellow Hall", color: "yellow" },
+    { id: "pace-room-2", label: "PACE Room 2", hallway: "Green Hall",  color: "green"  }
   ],
 
   // Reused verbatim from MAC Walkthrough's PACE_BEHAVIOR_OPTIONS /

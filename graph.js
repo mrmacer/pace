@@ -213,6 +213,11 @@ const GRAPH = {
   // detection key, same pattern as MAC Walkthrough's savePaceVisit/
   // saveWalkthrough. "Return Status" is intentionally not written — that
   // question isn't part of this app's entry flow (see README "Known gap").
+  //
+  // PATCH 001: completed-visit model — Time Out is now collected before
+  // save and written here at creation (same existing "Time Out" field
+  // closePaceVisit already used for the old open→close flow; no new field
+  // introduced). A row created by the current workflow is never "open."
   async savePaceVisit(entry) {
     const existing = await this.findListItemByDisplayField("IEP_Pace_Visits", "Entry ID", entry.id).catch(() => null);
     if (existing) {
@@ -225,6 +230,7 @@ const GRAPH = {
       "Student":       entry.studentName  || "",
       "Date":          entry.date         || "",
       "Time In":       entry.timeIn       || "",
+      "Time Out":      entry.timeOut      || "",
       "Behavior":      Array.isArray(entry.behaviors)     ? entry.behaviors.join(", ")     : (entry.behaviors || ""),
       "Interventions": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
       "SCM Used":      entry.scmUsed === true,

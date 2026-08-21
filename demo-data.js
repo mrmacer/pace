@@ -41,12 +41,16 @@ const DemoStorage = {
   },
 
   // `entry` is the exact same shape app.js already builds for
-  // GRAPH.savePaceVisit() (paceRoom, studentName, date, timeIn, behaviors[],
-  // interventions[], scmUsed, notes, submittedByName, timestamp). Stored
-  // using the same SharePoint *display*-field-name keys GRAPH uses, so
-  // every render function in app.js (which reads v["PACE Room"], v.Student,
-  // v["Time In"], etc.) works identically against demo and real data —
-  // only this file and pace-data.js know demo mode exists.
+  // GRAPH.savePaceVisit() (paceRoom, studentName, date, timeIn, timeOut,
+  // behaviors[], interventions[], scmUsed, notes, submittedByName,
+  // timestamp). Stored using the same SharePoint *display*-field-name keys
+  // GRAPH uses, so every render function in app.js (which reads
+  // v["PACE Room"], v.Student, v["Time In"], etc.) works identically
+  // against demo and real data — only this file and pace-data.js know demo
+  // mode exists.
+  //
+  // PATCH 001: completed-visit model — entry.timeOut now arrives already
+  // filled in (collected before save, not added later via updateVisit).
   createVisit(entry) {
     const data = this.load();
     const id = entry.id || crypto.randomUUID();
@@ -63,7 +67,7 @@ const DemoStorage = {
       "Student":       entry.studentName || "",
       "Date":          entry.date || "",
       "Time In":       entry.timeIn || "",
-      "Time Out":      "",
+      "Time Out":      entry.timeOut || "",
       "Behavior":      Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
       "Interventions": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
       "SCM Used":      entry.scmUsed === true,

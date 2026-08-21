@@ -59,12 +59,20 @@
   <section class="screen" data-screen="home">
     <div class="panel-inner center-content">
       <h1 class="app-title">PACE Room Tracker</h1>
+      <!-- PATCH 002: production's subtle authenticated-identity indicator —
+           shown only here (not a persistent per-screen banner like Demo
+           Mode's), set from AUTH.staffName (an already-resolved friendly
+           name from IEP_Users2), never the raw email. Hidden by default;
+           app.js unhides it only after a successful production sign-in. -->
+      <p class="signed-in-indicator hidden" id="signedInIndicator"></p>
       <div class="room-picker">
         <button class="room-card" data-room="pace-room-1">
-          <span class="room-card-label">PACE Room 1</span>
+          <span class="room-card-label">PACE ROOM 1</span>
+          <span class="room-card-hallway">YELLOW HALL</span>
         </button>
         <button class="room-card" data-room="pace-room-2">
-          <span class="room-card-label">PACE Room 2</span>
+          <span class="room-card-label">PACE ROOM 2</span>
+          <span class="room-card-hallway">GREEN HALL</span>
         </button>
       </div>
     </div>
@@ -77,12 +85,21 @@
       <h2 class="panel-title" id="roomTitle">PACE ROOM</h2>
       <button class="btn-text" data-nav="recent">Recent</button>
     </header>
+    <span class="room-badge"></span>
     <div class="panel-inner">
       <button class="btn btn-primary btn-huge btn-full" id="newStudentBtn">+ Student Entering PACE</button>
 
-      <h3 class="section-label">Currently in PACE</h3>
-      <div id="currentlyInPace" class="current-list">
-        <p class="empty-hint">Loading…</p>
+      <!-- PATCH 001: "Currently in PACE" / open-visit UI is legacy under the
+           completed-visit workflow (visits are now saved whole, with Time
+           Out already filled in, so there's normally nothing "open" to
+           show here). Hidden, not removed — the underlying fetch/render
+           code, and the Exit screen it feeds, are fully intact for future
+           reuse. Remove the "hidden" class to bring this back. -->
+      <div id="openVisitsLegacy" class="hidden">
+        <h3 class="section-label">Currently in PACE</h3>
+        <div id="currentlyInPace" class="current-list">
+          <p class="empty-hint">Loading…</p>
+        </div>
       </div>
     </div>
   </section>
@@ -94,9 +111,44 @@
       <h2 class="panel-title">Who Entered PACE?</h2>
       <span></span>
     </header>
+    <span class="room-badge"></span>
     <div class="panel-inner">
       <input type="text" id="studentSearch" class="search-input" placeholder="Search students…" autocomplete="off">
       <div id="studentGrid" class="student-grid"><p class="empty-hint">Loading students…</p></div>
+    </div>
+  </section>
+
+  <!-- ── VISIT INFO (date, time in, time out) ─────────────────────── -->
+  <section class="screen" data-screen="visitinfo">
+    <header class="panel-header">
+      <button class="btn-back" data-nav="student">&larr; Back</button>
+      <h2 class="panel-title">Visit Details</h2>
+      <span></span>
+    </header>
+    <span class="room-badge"></span>
+    <div class="panel-inner">
+      <p class="visit-student-name" id="visitStudentName"></p>
+
+      <div class="form-card visit-date-card">
+        <label class="walk-field-label" for="visitDateInput">Visit Date <span class="req">*</span></label>
+        <input type="date" class="form-input-lg" id="visitDateInput">
+      </div>
+
+      <div class="visit-time-row">
+        <div class="form-card">
+          <label class="walk-field-label" for="visitTimeInInput">Time In <span class="req">*</span></label>
+          <input type="time" class="form-input-lg" id="visitTimeInInput">
+        </div>
+        <div class="form-card">
+          <label class="walk-field-label" for="visitTimeOutInput">Time Out <span class="req">*</span></label>
+          <input type="time" class="form-input-lg" id="visitTimeOutInput">
+        </div>
+      </div>
+
+      <p class="visit-duration-hint" id="visitDurationHint"></p>
+      <p class="visit-time-error hidden" id="visitTimeError" role="alert"></p>
+
+      <button class="btn btn-primary btn-lg btn-full sticky-next" id="visitInfoNextBtn">Next</button>
     </div>
   </section>
 
@@ -115,10 +167,11 @@
   <!-- ── REASON ───────────────────────────────────────────────────── -->
   <section class="screen" data-screen="reason">
     <header class="panel-header">
-      <button class="btn-back" data-nav="student">&larr; Back</button>
+      <button class="btn-back" data-nav="visitinfo">&larr; Back</button>
       <h2 class="panel-title">What Brought Them To PACE?</h2>
       <span></span>
     </header>
+    <span class="room-badge"></span>
     <div class="panel-inner">
       <div class="chip-grid" id="reasonChips"></div>
       <button class="btn btn-primary btn-lg btn-full sticky-next" id="reasonNextBtn" disabled>Next</button>
@@ -132,6 +185,7 @@
       <h2 class="panel-title">What Support Was Provided?</h2>
       <span></span>
     </header>
+    <span class="room-badge"></span>
     <div class="panel-inner">
       <div class="chip-grid" id="supportChips"></div>
       <button class="btn btn-primary btn-lg btn-full sticky-next" id="supportNextBtn" disabled>Next</button>
@@ -145,6 +199,7 @@
       <h2 class="panel-title">Was SCM Required?</h2>
       <span></span>
     </header>
+    <span class="room-badge"></span>
     <div class="panel-inner center-content">
       <div class="yesno-row">
         <button class="btn-yesno" id="scmYesBtn" data-value="true">YES</button>
@@ -160,6 +215,7 @@
       <h2 class="panel-title">Notes</h2>
       <span></span>
     </header>
+    <span class="room-badge"></span>
     <div class="panel-inner">
       <button class="btn btn-secondary btn-lg btn-full" id="addNoteBtn">+ Add Note (Optional)</button>
       <textarea id="noteText" class="note-textarea hidden" rows="6" placeholder="Optional note…" maxlength="500"></textarea>
@@ -174,9 +230,10 @@
       <h2 class="panel-title">Ready To Log</h2>
       <span></span>
     </header>
+    <span class="room-badge"></span>
     <div class="panel-inner">
       <div class="confirm-card" id="confirmCard"></div>
-      <button class="btn btn-primary btn-huge btn-full sticky-next" id="saveEntryBtn">SAVE PACE ENTRY</button>
+      <button class="btn btn-primary btn-huge btn-full sticky-next" id="saveEntryBtn">SAVE PACE VISIT</button>
     </div>
 
     <!-- Sync failure overlay (spec section 16) -->
@@ -195,7 +252,7 @@
     <div class="overlay hidden" id="savedOverlay">
       <div class="overlay-card center-content">
         <div class="save-check">&#10003;</div>
-        <p class="gate-status">Student entered into PACE</p>
+        <p class="gate-status">PACE visit saved</p>
       </div>
     </div>
   </section>

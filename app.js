@@ -42,7 +42,8 @@ function nav(name, direction = "forward") {
 // Duplicate screen's Cancel button point at "student"), so this must use
 // querySelectorAll, not querySelector, or only the first one wires up.
 const BACK_NAV_PRERENDER = {
-  student: () => renderStudentGrid()
+  student: () => renderStudentGrid(),
+  visitinfo: () => renderVisitInfo()
 };
 document.querySelectorAll("[data-nav]").forEach(btn => {
   const target = btn.dataset.nav;
@@ -71,8 +72,24 @@ function nowHHMM() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+// PATCH 001: this used to be `new Date().toISOString().slice(0,10)`, which
+// converts to UTC first — in any US timezone that rolls to the WRONG local
+// calendar date in the evening (e.g. 8:30 PM Eastern is already past
+// midnight UTC). Build the date from local getters instead so "today"
+// always means the staff member's local today, never a UTC-shifted one.
 function todayISODate() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// "August 20, 2026" from a "YYYY-MM-DD" string, parsed as LOCAL date parts
+// (never `new Date("YYYY-MM-DD")`, which parses as UTC midnight and can
+// print the wrong day in negative-UTC-offset timezones — the same class of
+// bug todayISODate() above was fixed for).
+function fmtLongDate(dateStr) {
+  const d = dateOnly(dateStr);
+  if (!d) return "—";
+  const [y, m, day] = d.split("-").map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
 }
 // SharePoint may hand back "Date" as a bare "YYYY-MM-DD" (what this app
 // writes) or as a full ISO datetime (if the column is a true Date/Time
@@ -107,6 +124,22 @@ function minutesBetween(hhmmIn, hhmmOut) {
   return dur;
 }
 
+// PATCH 001: the ONE reusable duration calculation for the new completed-
+// visit workflow (Visit Info + Confirm screens both call this). Unlike
+// minutesBetween() above — which wraps past midnight and stays in place
+// for the legacy open→close Exit flow's elapsed-time display — this is
+// deliberately same-day-only per spec: a Time Out at or before Time In is
+// invalid, not a visit that "wrapped around," so this returns null rather
+// than guessing.
+function visitDurationMinutes(timeIn, timeOut) {
+  if (!timeIn || !timeOut) return null;
+  const [ih, im] = timeIn.split(":").map(Number);
+  const [oh, om] = timeOut.split(":").map(Number);
+  const inMin = ih * 60 + im, outMin = oh * 60 + om;
+  if (outMin <= inMin) return null;
+  return outMin - inMin;
+}
+
 /* ── App state ────────────────────────────────────────────────────────── */
 
 const STATE = {
@@ -118,6 +151,7 @@ const STATE = {
   scmUsed: null,
   notes: "",
   timeIn: "",
+  timeOut: "",  // PATCH 001: collected on the Visit Info screen, before save
   date: "",
   submissionId: null,
   saving: false,
@@ -132,6 +166,7 @@ function resetTrip() {
   STATE.scmUsed = null;
   STATE.notes = "";
   STATE.timeIn = "";
+  STATE.timeOut = "";
   STATE.date = "";
   STATE.submissionId = null;
 }
@@ -173,6 +208,15 @@ async function boot() {
     return;
   }
 
+  // PATCH 002: production's subtle identity indicator (Home screen only —
+  // see index.html). Never the raw email, and demoBanner is never touched
+  // on this path, so the two modes' indicators can't ever both show.
+  const indicator = document.getElementById("signedInIndicator");
+  if (indicator) {
+    indicator.textContent = `Signed in as ${AUTH.staffName || "you"}`;
+    indicator.classList.remove("hidden");
+  }
+
   const lastRoom = localStorage.getItem(roomStorageKey());
   if (lastRoom && CONFIG.ROOMS.some(r => r.id === lastRoom)) {
     await enterRoom(lastRoom, "forward");
@@ -210,10 +254,25 @@ document.querySelectorAll(".room-card").forEach(btn => {
 async function enterRoom(roomId, direction) {
   STATE.room = roomId;
   localStorage.setItem(roomStorageKey(), roomId);
-  const label = CONFIG.ROOMS.find(r => r.id === roomId)?.label || roomId;
-  document.getElementById("roomTitle").textContent = label.toUpperCase();
+  const room = CONFIG.ROOMS.find(r => r.id === roomId);
+  document.getElementById("roomTitle").textContent = (room?.label || roomId).toUpperCase();
+  // PATCH 001: single room-state/theme mechanism — everything colored by
+  // room (badges, accents) reads from this one attribute via CSS custom
+  // properties (see styles.css `body[data-room="..."]`), rather than any
+  // screen styling itself individually.
+  document.body.dataset.room = roomId;
+  updateRoomBadges();
   nav("room", direction);
   await refreshRoomVisits();
+}
+
+// Keeps every `.room-badge` element (one per workflow screen) in sync with
+// the currently selected room — "PACE ROOM 1 · YELLOW HALL" — a single
+// function driving every instance rather than per-screen logic.
+function updateRoomBadges() {
+  const room = CONFIG.ROOMS.find(r => r.id === STATE.room);
+  const text = room ? `${room.label.toUpperCase()} · ${room.hallway.toUpperCase()}` : "";
+  document.querySelectorAll(".room-badge").forEach(el => { el.textContent = text; });
 }
 
 async function refreshRoomVisits() {
@@ -317,18 +376,83 @@ function selectStudent(studentId) {
     return;
   }
 
+  // PATCH 001: completed-visit model — selecting a student no longer
+  // creates or auto-times anything. Date defaults to today (only if this
+  // is a genuinely fresh trip — resetTrip() already cleared it), but Time
+  // In/Time Out are left blank for staff to enter after the fact on the
+  // Visit Info screen. STATE.date/timeIn/timeOut persist across Back/Next
+  // navigation from here on since nothing else resets them.
   STATE.student = student;
-  STATE.date = todayISODate();
-  STATE.timeIn = nowHHMM();
+  if (!STATE.date) STATE.date = todayISODate();
   STATE.submissionId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `pace-${Date.now()}`;
 
-  renderChipGrid("reasonChips", CONFIG.REASON_OPTIONS, STATE.reasons, () => updateNextEnabled("reason"));
-  updateNextEnabled("reason");
-  nav("reason", "forward");
+  renderVisitInfo();
+  nav("visitinfo", "forward");
 }
 
 document.getElementById("dupViewBtn").addEventListener("click", () => {
   if (STATE.duplicateTarget) openExitScreen(STATE.duplicateTarget);
+});
+
+/* ── VISIT INFO: date / time in / time out (PATCH 001) ────────────────── */
+
+// Populates the screen from STATE every time it's shown — forward from
+// Student or backward from Reason — so nothing is ever silently reset by
+// navigating. Re-validates on every input change so the error clears the
+// moment the values become valid again, without waiting for a Next tap.
+function renderVisitInfo() {
+  document.getElementById("visitStudentName").textContent = STATE.student?.name || "";
+  document.getElementById("visitDateInput").value = STATE.date || todayISODate();
+  document.getElementById("visitTimeInInput").value = STATE.timeIn || "";
+  document.getElementById("visitTimeOutInput").value = STATE.timeOut || "";
+  document.getElementById("visitTimeError").classList.add("hidden");
+  updateVisitDurationHint();
+}
+
+function updateVisitDurationHint() {
+  const hintEl = document.getElementById("visitDurationHint");
+  const dur = visitDurationMinutes(STATE.timeIn, STATE.timeOut);
+  hintEl.textContent = dur !== null ? `Duration: ${dur} minute${dur !== 1 ? "s" : ""}` : "";
+}
+
+// Shared by the Next button AND the defensive re-check right before final
+// save (spec: validate "before advancing... OR before final submission").
+// Returns a human-readable message, or null if everything's valid.
+function validateVisitInfo() {
+  const date = document.getElementById("visitDateInput").value;
+  const timeIn = document.getElementById("visitTimeInInput").value;
+  const timeOut = document.getElementById("visitTimeOutInput").value;
+  if (!date) return "Please enter the visit date.";
+  if (!timeIn) return "Please enter Time In.";
+  if (!timeOut) return "Please enter Time Out.";
+  if (visitDurationMinutes(timeIn, timeOut) === null) return "Time Out must be later than Time In.";
+  return null;
+}
+
+["visitDateInput", "visitTimeInInput", "visitTimeOutInput"].forEach(id => {
+  document.getElementById(id).addEventListener("input", () => {
+    STATE.date = document.getElementById("visitDateInput").value;
+    STATE.timeIn = document.getElementById("visitTimeInInput").value;
+    STATE.timeOut = document.getElementById("visitTimeOutInput").value;
+    document.getElementById("visitTimeError").classList.add("hidden");
+    updateVisitDurationHint();
+  });
+});
+
+document.getElementById("visitInfoNextBtn").addEventListener("click", () => {
+  const error = validateVisitInfo();
+  const errorEl = document.getElementById("visitTimeError");
+  if (error) {
+    // Block advancement, preserve everything already entered, and never
+    // silently alter the staff member's times — just say what's wrong.
+    errorEl.textContent = error;
+    errorEl.classList.remove("hidden");
+    return;
+  }
+  errorEl.classList.add("hidden");
+  renderChipGrid("reasonChips", CONFIG.REASON_OPTIONS, STATE.reasons, () => updateNextEnabled("reason"));
+  updateNextEnabled("reason");
+  nav("reason", "forward");
 });
 
 /* ── REASON / SUPPORT chips (shared renderer) ────────────────────────── */
@@ -390,33 +514,43 @@ document.getElementById("notesNextBtn").addEventListener("click", () => {
 
 /* ── CONFIRM ──────────────────────────────────────────────────────────── */
 
+// PATCH 001: read-only summary of the COMPLETE visit — editing now happens
+// by tapping Back to the relevant earlier screen (Visit Info for date/
+// times), not inline here. Keeps this screen to "verify in seconds, then
+// tap the one dominant Save button," per spec.
 function renderConfirmCard() {
-  const roomLabel = CONFIG.ROOMS.find(r => r.id === STATE.room)?.label || STATE.room;
+  const room = CONFIG.ROOMS.find(r => r.id === STATE.room);
+  const roomLine = room ? `${room.label} — ${room.hallway}` : (STATE.room || "");
+  const dur = visitDurationMinutes(STATE.timeIn, STATE.timeOut);
   const card = document.getElementById("confirmCard");
   card.innerHTML = `
+    <div class="confirm-row"><span class="confirm-row-label">Room</span><span class="confirm-row-value">${escHtml(roomLine)}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Student</span><span class="confirm-row-value">${escHtml(STATE.student?.name || "")}</span></div>
-    <div class="confirm-row"><span class="confirm-row-label">Room</span><span class="confirm-row-value">${escHtml(roomLabel)}</span></div>
+    <div class="confirm-row"><span class="confirm-row-label">Visit</span><span class="confirm-row-value">${escHtml(fmtLongDate(STATE.date))}</span></div>
     <div class="confirm-row">
-      <span class="confirm-row-label">Entered</span>
-      <span class="confirm-row-value" id="confirmTimeInDisplay" style="cursor:pointer;text-decoration:underline dotted">${escHtml(fmt12h(STATE.timeIn))} ✏️</span>
+      <span class="confirm-row-label">Time</span>
+      <span class="confirm-row-value">${escHtml(fmt12h(STATE.timeIn))} → ${escHtml(fmt12h(STATE.timeOut))}${dur !== null ? ` · ${dur} min` : ""}</span>
     </div>
-    <input type="time" id="confirmTimeInEdit" class="hidden" value="${escHtml(STATE.timeIn)}" style="font-size:16px;padding:8px;border-radius:8px;border:1.5px solid var(--border)">
     <div class="confirm-row"><span class="confirm-row-label">Reason</span><span class="confirm-row-value">${escHtml(STATE.reasons.join(", "))}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Support</span><span class="confirm-row-value">${escHtml(STATE.supports.join(", "))}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">SCM</span><span class="confirm-row-value">${STATE.scmUsed ? "Yes" : "No"}</span></div>
-    ${STATE.notes ? `<div class="confirm-row"><span class="confirm-row-label">Note</span><span class="confirm-row-value">${escHtml(STATE.notes)}</span></div>` : ""}
+    ${STATE.notes ? `<div class="confirm-row"><span class="confirm-row-label">Notes</span><span class="confirm-row-value">${escHtml(STATE.notes)}</span></div>` : ""}
   `;
-  const display = document.getElementById("confirmTimeInDisplay");
-  const editor  = document.getElementById("confirmTimeInEdit");
-  display.addEventListener("click", () => { display.classList.add("hidden"); editor.classList.remove("hidden"); editor.focus(); });
-  editor.addEventListener("change", () => {
-    if (editor.value) STATE.timeIn = editor.value;
-    renderConfirmCard();
-  });
 }
 
 document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   if (STATE.saving) return; // never allow a second tap to fire a duplicate submission
+
+  // Defensive re-check (spec: validate "before advancing... OR before
+  // final submission") — the Visit Info screen already gated this once,
+  // but re-verify STATE directly in case anything upstream changed it.
+  if (!STATE.date || !STATE.timeIn || !STATE.timeOut || visitDurationMinutes(STATE.timeIn, STATE.timeOut) === null) {
+    renderVisitInfo();
+    nav("visitinfo", "back");
+    showToast("Please double-check the visit date and times.", "error");
+    return;
+  }
+
   STATE.saving = true;
   const btn = document.getElementById("saveEntryBtn");
   btn.disabled = true; btn.textContent = "Saving…";
@@ -427,6 +561,7 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
     studentName: STATE.student.name,
     date: STATE.date,
     timeIn: STATE.timeIn,
+    timeOut: STATE.timeOut,
     behaviors: STATE.reasons,
     interventions: STATE.supports,
     scmUsed: STATE.scmUsed,
@@ -437,7 +572,7 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
 
   try {
     await PACE_DATA.createVisit(entry);
-    btn.disabled = false; btn.textContent = "SAVE PACE ENTRY";
+    btn.disabled = false; btn.textContent = "SAVE PACE VISIT";
     STATE.saving = false;
     document.getElementById("savedOverlay").classList.remove("hidden");
     await refreshRoomVisits();
@@ -449,7 +584,7 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   } catch (err) {
     console.error("PACE save failed:", err);
     STATE.saving = false;
-    btn.disabled = false; btn.textContent = "SAVE PACE ENTRY";
+    btn.disabled = false; btn.textContent = "SAVE PACE VISIT";
     document.getElementById("syncErrorDetail").textContent = err.message || "Please check the connection and try again.";
     document.getElementById("syncErrorOverlay").classList.remove("hidden");
   }

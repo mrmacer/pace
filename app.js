@@ -217,6 +217,11 @@ async function boot() {
     indicator.classList.remove("hidden");
   }
 
+  // TEMPORARY PATCH 003 DIAGNOSTIC — only ever unhidden here, i.e. only
+  // after a real signed-in + authorized production boot. Never reached in
+  // demo mode (this whole branch of boot() is production-only).
+  document.getElementById("runDiagnosticBtn")?.classList.remove("hidden");
+
   const lastRoom = localStorage.getItem(roomStorageKey());
   if (lastRoom && CONFIG.ROOMS.some(r => r.id === lastRoom)) {
     await enterRoom(lastRoom, "forward");
@@ -692,6 +697,54 @@ document.getElementById("resetDemoBtn")?.addEventListener("click", () => {
   showToast("Demo data cleared.");
   refreshRoomVisits();
   if (currentScreenName === "recent") document.querySelector('[data-nav="recent"]').click();
+});
+
+/* ── TEMPORARY PATCH 003 DIAGNOSTIC (production-only, read-only) ─────────
+   Remove this whole block (plus the button/overlay markup in index.html
+   and diagnostic.js) once field mapping is reconciled and confirmed. ──── */
+
+document.getElementById("runDiagnosticBtn")?.addEventListener("click", async () => {
+  if (APP_MODE === "demo") return; // defensive: button is never even shown in demo mode
+  const overlay  = document.getElementById("diagnosticOverlay");
+  const status   = document.getElementById("diagnosticStatus");
+  const output   = document.getElementById("diagnosticOutput");
+  const copyBtn  = document.getElementById("copyDiagnosticBtn");
+
+  overlay.classList.remove("hidden");
+  status.textContent = "Running diagnostic (read-only)…";
+  output.classList.add("hidden");
+  copyBtn.classList.add("hidden");
+
+  try {
+    const result = await Diagnostic.run();
+    output.value = Diagnostic.formatReport(result);
+    output.classList.remove("hidden");
+    copyBtn.classList.remove("hidden");
+    status.textContent = "Done — nothing was created, changed, or deleted.";
+  } catch (err) {
+    console.error("Diagnostic failed:", err.message || err);
+    status.textContent = `Diagnostic failed: ${err.message || err}`;
+  }
+});
+
+document.getElementById("copyDiagnosticBtn")?.addEventListener("click", async () => {
+  const output = document.getElementById("diagnosticOutput");
+  try {
+    await navigator.clipboard.writeText(output.value);
+    showToast("Diagnostic report copied.");
+  } catch {
+    // Clipboard API can be blocked in some contexts — fall back to a
+    // manual-select so the report is still easy to copy.
+    output.removeAttribute("readonly");
+    output.focus();
+    output.select();
+    output.setAttribute("readonly", "");
+    showToast("Select-all applied — copy with your keyboard shortcut.");
+  }
+});
+
+document.getElementById("closeDiagnosticBtn")?.addEventListener("click", () => {
+  document.getElementById("diagnosticOverlay").classList.add("hidden");
 });
 
 /* ── Misc ─────────────────────────────────────────────────────────────── */

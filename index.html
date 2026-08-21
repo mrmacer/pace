@@ -75,6 +75,24 @@
           <span class="room-card-hallway">GREEN HALL</span>
         </button>
       </div>
+
+      <!-- TEMPORARY PATCH 003 DIAGNOSTIC — production-only, shown by app.js
+           only after a successful signed-in+authorized boot. Read-only:
+           see diagnostic.js. Remove this button + the overlay below, plus
+           diagnostic.js and its <script> tag, to fully retract this. -->
+      <button class="btn-diagnostic hidden" id="runDiagnosticBtn">Run SharePoint Diagnostic</button>
+    </div>
+
+    <div class="overlay hidden" id="diagnosticOverlay">
+      <div class="overlay-card diagnostic-card">
+        <h3>TEMPORARY PATCH 003 DIAGNOSTIC</h3>
+        <p class="gate-status" id="diagnosticStatus">Running diagnostic (read-only)…</p>
+        <textarea id="diagnosticOutput" class="diagnostic-output hidden" readonly aria-label="Diagnostic report"></textarea>
+        <div class="stacked-actions">
+          <button class="btn btn-primary btn-lg btn-full hidden" id="copyDiagnosticBtn">Copy Diagnostic Report</button>
+          <button class="btn btn-secondary btn-lg btn-full" id="closeDiagnosticBtn">Close</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -307,6 +325,8 @@
 <script src="graph.js"></script>
 <script src="roster.js"></script>
 <script src="pace-data.js"></script>
+<!-- TEMPORARY PATCH 003 DIAGNOSTIC — delete this line along with diagnostic.js -->
+<script src="diagnostic.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

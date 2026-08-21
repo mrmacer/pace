@@ -9,7 +9,7 @@
    "Unable to sync" retry screen when offline, per the app's design).
    ───────────────────────────────────────────────────────────────────────── */
 
-const CACHE_NAME = "pace-tracker-shell-v4"; // bumped: PATCH 002 production activation
+const CACHE_NAME = "pace-tracker-shell-v5"; // bumped: PATCH 003 temporary diagnostic added
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -20,6 +20,7 @@ const SHELL_FILES = [
   "./graph.js",
   "./roster.js",
   "./pace-data.js",
+  "./diagnostic.js", // TEMPORARY PATCH 003 DIAGNOSTIC — remove this line when retracted
   "./app.js",
   "./manifest.webmanifest",
   "./assets/iu29-logo.png"

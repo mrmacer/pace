@@ -33,6 +33,13 @@ const DEMO_USER = {
 // production-only fallback — see pace-data.js).
 const DEMO_SPECIALISTS = ["Dana Fielding", "Marcus Webb", "Priya Anand"];
 
+// PATCH 006: simulates PACE_DATA.getTeachers()'s two-source production
+// combination (IEP_Users2 Role="Teacher" + unique roster Teacher values) —
+// "Mr. Delgado" has no PACE-eligible students of his own (unlike the other
+// three, who are also each a DEMO_STUDENTS homeroom teacher), so the
+// dedupe/merge behavior gets exercised the same way real data would.
+const DEMO_CAME_FROM_TEACHERS = ["Mrs. Ashford", "Mr. Bellamy", "Ms. Castillo", "Mr. Delgado"];
+
 const DemoStorage = {
   load() {
     try {
@@ -93,12 +100,15 @@ const DemoStorage = {
       "SCM Used":           entry.scmUsed === true,
       "Notes":              entry.notes || "",
       // PATCH 004: kept here for demo parity/completeness even though
-      // production doesn't persist either today (no live "Teacher" column
-      // on IEP_Pace_Visits at all, and "Staff Member" is a Person-type
-      // column this project has no write infrastructure for — see
-      // README). Demo still models the full logical visit.
+      // production doesn't persist "Staff Member" today (it's a
+      // Person-type column this project has no write infrastructure for —
+      // see README). Demo still models the full logical visit.
       "Staff Member":       entry.staffMember || "",
-      "Teacher":            entry.teacher || "",
+      // PATCH 006: replaces the old homeroom "Teacher" (STATE.teacher,
+      // removed along with the homeroom-grouped Student screen) — this is
+      // specifically who the student physically came from for THIS visit,
+      // not their roster homeroom teacher.
+      "Teacher Came From":  entry.cameFromTeacher || "",
       "Submitted By":       entry.submittedByName || DEMO_USER.name,
       "Submitted At":       entry.timestamp || new Date().toISOString(),
       createdAt:            new Date().toISOString()

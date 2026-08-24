@@ -136,40 +136,49 @@
     </div>
   </section>
 
-  <!-- ── TEACHER (PATCH 004) — dynamically derived from the roster,
-       never hardcoded ────────────────────────────────────────────── -->
-  <section class="screen" data-screen="teacher">
+  <!-- ── STUDENT SELECT (PATCH 006: search-first, no homeroom grouping) ── -->
+  <section class="screen" data-screen="student">
     <header class="panel-header">
-      <button class="btn-back" data-nav="specialist">&larr; Back</button>
-      <h2 class="panel-title">Select Teacher</h2>
+      <button class="btn-back" data-nav="specialist">&larr; Cancel</button>
+      <h2 class="panel-title">Select Student</h2>
       <button class="btn-text" id="changeStaffBtn">Change Staff</button>
     </header>
     <span class="room-badge"></span>
-    <p class="staff-context-line" id="staffContextLine"></p>
+    <p class="staff-context-line" id="specialistContextLine"></p>
     <div class="panel-inner">
-      <div id="teacherGrid" class="student-grid"><p class="empty-hint">Loading…</p></div>
+      <label class="walk-field-label" for="studentSearch">Search by student name</label>
+      <input type="text" id="studentSearch" class="search-input search-input-hero" placeholder="Start typing a name…" autocomplete="off" autocapitalize="words">
+      <div id="studentGrid" class="student-grid"><p class="empty-hint">Loading students…</p></div>
     </div>
   </section>
 
-  <!-- ── STUDENT SELECT ───────────────────────────────────────────── -->
-  <section class="screen" data-screen="student">
+  <!-- ── TEACHER CAME FROM (PATCH 006) — who the student was physically
+       with immediately before this PACE visit; NOT the roster's homeroom
+       Teacher, and NOT the old homeroom-grouped Teacher screen (removed
+       this patch) ─────────────────────────────────────────────────── -->
+  <section class="screen" data-screen="cameFrom">
     <header class="panel-header">
-      <button class="btn-back" data-nav="teacher">&larr; Cancel</button>
-      <h2 class="panel-title">Who Entered PACE?</h2>
+      <button class="btn-back" data-nav="student">&larr; Back</button>
+      <h2 class="panel-title">Where Did The Student Come From?</h2>
       <span></span>
     </header>
     <span class="room-badge"></span>
-    <p class="staff-context-line" id="teacherContextLine"></p>
     <div class="panel-inner">
-      <input type="text" id="studentSearch" class="search-input" placeholder="Search students…" autocomplete="off">
-      <div id="studentGrid" class="student-grid"><p class="empty-hint">Loading students…</p></div>
+      <h3 class="section-label">Select Teacher</h3>
+      <input type="text" id="cameFromSearch" class="search-input" placeholder="Search teachers…" autocomplete="off">
+      <div id="cameFromGrid" class="student-grid"><p class="empty-hint">Loading…</p></div>
+      <div class="form-card hidden" id="cameFromOtherWrap">
+        <label class="walk-field-label" for="cameFromOtherInput">Teacher Name <span class="req">*</span></label>
+        <input type="text" class="form-input-lg" id="cameFromOtherInput" placeholder="Enter teacher name" maxlength="120">
+        <button class="btn btn-primary btn-lg btn-full" id="cameFromOtherContinueBtn" style="margin-top:12px">Continue</button>
+      </div>
     </div>
   </section>
 
   <!-- ── VISIT INFO (date, time in, time out) ─────────────────────── -->
   <section class="screen" data-screen="visitinfo">
     <header class="panel-header">
-      <button class="btn-back" data-nav="student">&larr; Back</button>
+      <button class="btn-back" data-nav="cameFrom">&larr; Back</button>
       <h2 class="panel-title">Visit Details</h2>
       <span></span>
     </header>

@@ -288,6 +288,15 @@ const GRAPH = {
       "Intervention Used":  Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
       "SCM Used":           entry.scmUsed === true,
       "Notes":              entry.notes        || "",
+      // PATCH 006: the teacher/classroom the student physically came from
+      // immediately before this PACE visit — NOT the roster's homeroom
+      // Teacher. Sent speculatively, same as the other fields above with
+      // no confirmed live column yet: mapFields() drops it harmlessly (a
+      // console.warn, nothing more) if "Teacher Came From" doesn't exist
+      // on IEP_Pace_Visits yet, and starts working with zero code change
+      // the moment that column is added. Manual SharePoint action may be
+      // required — see README "Known gaps."
+      "Teacher Came From":  entry.cameFromTeacher || "",
       "Submitted By":       entry.submittedByName || "",
       "Submitted At":       entry.timestamp    || new Date().toISOString()
     });

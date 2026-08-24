@@ -10,17 +10,37 @@ administrators through MAC Walkthrough's dashboard/reports.
 PACE ROOM iPad → PACE Room Tracker → Microsoft Graph → IEP_Pace_Visits → MAC Walkthrough
 ```
 
-Entry workflow (as of PATCH 004):
+Entry workflow (as of PATCH 006):
 
 ```
-Home → Room → Behavior Specialist → Teacher → Student → Visit Info →
-Reason → Support → SCM → Notes → Confirm → Save → (back to) Teacher
+Home → Room → Behavior Specialist → Student (search-first) →
+Teacher Came From → Visit Info → Reason → Support → SCM → Notes →
+Confirm → Save → (back to) Student Search
 ```
 
-Saving returns to **Teacher**, not Room — the same specialist commonly logs
-several students in a row, often for the same teacher. Room and Specialist
-persist for the whole room session; Teacher/Student/visit fields reset each
-time. See `app.js`'s `enterRoom()`/`resetTrip()`/save-handler comments.
+Saving returns to **Student Search**, not Room — the same specialist
+commonly logs several students back-to-back. Room and Specialist persist
+for the whole room session; Student/Teacher-Came-From/visit fields reset
+each time. See `app.js`'s `enterRoom()`/`resetTrip()`/save-handler comments.
+
+**PATCH 004 introduced a homeroom-Teacher-grouped Student screen (Room →
+Specialist → Teacher → filtered Student list) — PATCH 006 removed it.** The
+roster's `Teacher` column is homeroom/roster ownership, which turned out
+not to reliably represent which classroom a student was *physically*
+coming from at the moment of a PACE visit, so grouping student selection by
+it was the wrong model. Student selection is now search-first across the
+full eligible roster, and a new, separate "Teacher Came From" question
+(right after picking the student, stored as `STATE.cameFromTeacher`, never
+conflated with the roster's homeroom `student.teacher`) captures that
+instead. `getTeacherList()`/`renderTeacherGrid()`/`studentsForTeacher()`/
+`selectTeacher()` and the old Teacher screen's markup were deleted outright
+rather than kept-but-hidden (unlike "Currently in PACE" in Patch 001) —
+they were fully superseded by the new Teacher-Came-From screen's similar
+but functionally different logic, so keeping both would have meant two
+confusing "teacher grid" concepts side by side. The roster still reads and
+keeps `student.teacher`/`student.classroom` internally (harmless, may be
+useful elsewhere later) — neither is displayed anywhere in the PACE
+workflow.
 
 ## What was reused from MAC Walkthrough
 
@@ -212,6 +232,25 @@ first, if this is the first deploy) when ready.
   Walkthrough's version does not) — `IEP_Pace_Visits` will grow past
   Graph's ~200-item page size within a school year, and "Currently in
   PACE" must never silently miss a recent entry.
+- **PATCH 006: `"Teacher Came From"` has no confirmed live column yet.**
+  Sent speculatively (same pattern as `PACE Room`/`SCM Used`/etc. above) as
+  a plain string — harmless if the column doesn't exist, starts working
+  immediately with zero code change once it does. **Manual SharePoint
+  action recommended**: add a column to `IEP_Pace_Visits` named exactly
+  `Teacher Came From`, type **Single line of text**. Not created
+  automatically, per instruction. Run the Patch 003 diagnostic (still in
+  place) after adding it to confirm the exact internal name Graph assigns.
+- **PATCH 006: `PACE_DATA.getTeachers()`** (the "Teacher Came From"
+  picklist) combines two sources — Active `Role = "Teacher"` rows in
+  `IEP_Users2` (same mechanism as the Behavior Specialist picker, see
+  Patch 005), plus unique `Teacher` values already on the PACE-eligible
+  roster (`IEP_Students_2026_27`) — trimmed, case-insensitively deduped,
+  sorted alphabetically. **To add a selectable teacher later, no
+  deployment is needed**: add a row to `IEP_Users2` with `Role = Teacher`,
+  `Active = Yes`, a `Name`, and any placeholder `User ID` — `Email` can
+  stay blank if this person is only ever selected as a PACE origin
+  teacher. They appear automatically on the next roster/user refresh
+  (i.e., the next time someone opens the Teacher Came From screen).
 
 ### Temporary diagnostic tool
 

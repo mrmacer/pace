@@ -58,5 +58,47 @@ const PACE_DATA = {
       console.error("Failed to load Behavior Specialists from IEP_Users2:", err.message || err);
     }
     return CONFIG.BEHAVIOR_SPECIALISTS.slice();
+  },
+
+  // PATCH 006: "Teacher Came From" picklist for the new screen of the same
+  // name — deliberately NOT the same list as the old homeroom-grouped
+  // Teacher screen (removed this patch). Combines two sources per spec:
+  //   Source A — Active "Teacher"-role rows in IEP_Users2 (same
+  //              GRAPH.getActiveUsersByRole() the Specialist picker uses).
+  //   Source B — unique, non-blank `teacher` values already present on the
+  //              PACE-eligible roster (reuses this.getStudents() rather
+  //              than a second/different roster fetch — Active + PACE
+  //              Enabled only, since that's the only roster query this
+  //              project has; a teacher whose only students aren't
+  //              PACE-enabled won't appear from this source, but still
+  //              will via Source A if they also have a Teacher-role row).
+  // Trimmed, case-insensitively deduped (first-seen casing wins), sorted
+  // alphabetically. Adding a teacher later needs no code change — see
+  // README "Future teacher additions."
+  async getTeachers() {
+    if (APP_MODE === "demo") return DEMO_CAME_FROM_TEACHERS.slice();
+
+    const [roleTeachers, students] = await Promise.all([
+      GRAPH.getActiveUsersByRole("Teacher").catch(err => {
+        console.error("Failed to load Teacher-role users from IEP_Users2:", err.message || err);
+        return [];
+      }),
+      this.getStudents().catch(err => {
+        console.error("Failed to load roster teacher names:", err.message || err);
+        return [];
+      })
+    ]);
+
+    const seen = new Map(); // lowercase key -> first-seen display casing
+    const add = name => {
+      const trimmed = String(name || "").trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) seen.set(key, trimmed);
+    };
+    roleTeachers.forEach(u => add(u.name));
+    students.forEach(s => add(s.teacher));
+
+    return [...seen.values()].sort((a, b) => a.localeCompare(b));
   }
 };

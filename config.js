@@ -90,10 +90,16 @@ const CONFIG = {
   // taxonomy. "Other" intentionally omitted — PACE Room Tracker keeps
   // typing to an absolute minimum and this is a kiosk, not a report tool;
   // an admin can capture unusual cases in MAC Walkthrough directly.
+  // PATCH 006: added "Needs a Break" and "Other" — all prior entries left
+  // exactly as they were (same wording, same order), nothing renamed or
+  // removed. "Other" is a plain chip like every other option here; there's
+  // no free-text follow-up mechanism on the Reason screen today, and
+  // adding one for just this one value isn't warranted (see README).
   REASON_OPTIONS: [
     "Disruption", "Defiance / refusal", "Physical aggression", "Verbal aggression",
     "Elopement", "Unsafe behavior", "Peer conflict", "Property damage",
-    "Transition difficulty", "Emotional dysregulation"
+    "Transition difficulty", "Emotional dysregulation",
+    "Needs a Break", "Other"
   ],
 
   SUPPORT_OPTIONS: [

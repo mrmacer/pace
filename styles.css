@@ -255,7 +255,18 @@ body[data-room="pace-room-2"] {
   width: 100%; font-size: 17px; padding: 14px 16px; border-radius: var(--radius);
   border: 1.5px solid var(--border); background: var(--surface); min-height: 48px;
 }
+/* PATCH 006: the Student screen's search box needs to visually dominate —
+   "one of the most visually obvious controls on the screen." */
+.search-input-hero {
+  font-size: 22px; font-weight: 700; padding: 18px 20px; min-height: 64px;
+  border-width: 2px; border-color: var(--color-primary-light);
+  box-shadow: var(--shadow);
+}
+.search-input-hero:focus { border-color: var(--color-primary); outline: none; }
 .student-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+/* PATCH 006: "Other / Not Listed" reads as a fallback, not a peer option —
+   same dashed-border language as .btn-diagnostic. */
+.student-card.other-option { border: 1.5px dashed var(--border); box-shadow: none; color: var(--text-secondary); }
 .student-card {
   background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); min-height: 74px; padding: 14px; display: flex; flex-direction: column;
@@ -263,13 +274,12 @@ body[data-room="pace-room-2"] {
   text-align: center; font-size: 17px; font-weight: 700; cursor: pointer;
 }
 .student-card:active { transform: scale(.96); border-color: var(--color-primary); }
-/* PATCH 004: Specialist/Teacher cards reuse .student-card, plus a
-   selected-highlight so re-visiting the screen (e.g. via Back) shows what
-   was already picked — same visual language as .chip.selected. */
+/* PATCH 004/006: Specialist/Teacher-Came-From cards reuse .student-card,
+   plus a selected-highlight so re-visiting the screen (e.g. via Back)
+   shows what was already picked — same visual language as .chip.selected. */
 .student-card.selected { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
-.student-card .teacher-count { font-size: 12px; font-weight: 600; opacity: .75; }
 
-/* Small secondary context line (e.g. selected specialist on the Teacher
+/* Small secondary context line (e.g. selected specialist on the Student
    screen, selected teacher on the Student screen) — deliberately subtle,
    shown on one screen at a time, never stacked with the room badge. */
 .staff-context-line {

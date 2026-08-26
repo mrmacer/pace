@@ -44,10 +44,12 @@ const GRAPH = {
   _listIdCache: {},
   _schemaCache: {},
 
-  async _get(path) {
+  async _get(path, additionalHeaders = {}) {
     assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
-    const resp  = await fetch(`${this._BASE}/${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const resp  = await fetch(`${this._BASE}/${path}`, {
+      headers: { Authorization: `Bearer ${token}`, ...additionalHeaders }
+    });
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
       console.error("Graph GET failed", path, resp.status, body);
@@ -235,6 +237,51 @@ const GRAPH = {
     });
   },
 
+  // PATCH 008: bounded Recent Activity/current-room read. The caller
+  // supplies the iPad's LOCAL calendar date; Graph filters the real
+  // IEP_Pace_Visits Date column before any rows reach the device. This is
+  // deliberately separate from the legacy all-items reader above so the
+  // shared iPad never needs a school-year history just to show today.
+  //
+  // A two-sided range is used instead of string equality because a
+  // SharePoint Date column may serialize as either a date or midnight ISO
+  // datetime. Paging is still followed, but only within that one day.
+  async getPaceVisitsForDateByDisplayName(localDate) {
+    const date = String(localDate || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("A valid visit date is required.");
+
+    const [siteId, listId, schema] = await Promise.all([
+      this.getSiteId(),
+      this.getListId(CONFIG.LISTS.paceVisits),
+      this.getListSchema(CONFIG.LISTS.paceVisits)
+    ]);
+    const dateField = schema.Date;
+    if (!dateField) throw new Error("IEP_Pace_Visits Date column was not found.");
+
+    const [year, month, day] = date.split("-").map(Number);
+    const nextDate = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+    const filter = `fields/${dateField} ge '${date}T00:00:00Z' and fields/${dateField} lt '${nextDate}T00:00:00Z'`;
+    let path = `sites/${siteId}/lists/${listId}/items?$expand=fields&$filter=${encodeURIComponent(filter)}&$top=200`;
+    const items = [];
+
+    while (path) {
+      const data = await this._get(path, { Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly" });
+      items.push(...(data.value || []));
+      const nextLink = data["@odata.nextLink"];
+      path = nextLink ? nextLink.replace(`${this._BASE}/`, "") : null;
+    }
+
+    const inverseSchema = {};
+    Object.entries(schema).forEach(([display, internal]) => { inverseSchema[internal] = display; });
+    return items.map(item => {
+      const row = { id: item.id, Created: item.createdDateTime || item.fields?.Created || "" };
+      Object.entries(item.fields || {}).forEach(([key, value]) => {
+        row[inverseSchema[key] || key] = value;
+      });
+      return row;
+    });
+  },
+
   // Creates a new PACE visit.
   //
   // PATCH 003: reconciled against the LIVE IEP_Pace_Visits schema (see the
@@ -271,6 +318,17 @@ const GRAPH = {
   // requires new infrastructure (resolving a name to a SharePoint
   // site-user id) this project doesn't have yet.
   //
+  // PATCH 010: STATE.staffMember (single string) -> STATE.staffMembers
+  // (array, multi-select) — "Behavior Specialist" now receives all
+  // selected names, comma-joined, same convention as "Reason"/
+  // "Intervention Used" just below. This is still the SAME speculative,
+  // harmlessly-dropped-if-missing text column PATCH 004/005 already used
+  // for a single name — multi-select does not change whether that column
+  // exists; see README "Live IEP_Pace_Visits schema" for its confirmed
+  // status. The Person-type "Staff Member" column remains unwritten for
+  // exactly the same reason as before: still no site-user resolution
+  // infrastructure, now doubly true for a list of names.
+  //
   // PATCH 001: completed-visit model — Time Out is collected before save
   // and written here at creation (the existing "Time Out" field
   // closePaceVisit already used for the old open→close flow). A row
@@ -286,8 +344,9 @@ const GRAPH = {
       "Duration":           entry.durationMinutes ?? undefined,
       "Reason":             Array.isArray(entry.behaviors)     ? entry.behaviors.join(", ")     : (entry.behaviors || ""),
       "Intervention Used":  Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
-      "SCM Used":           entry.scmUsed === true,
+      "SCM Used":           entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "Notes":              entry.notes        || "",
+      "Behavior Specialist": Array.isArray(entry.staffMembers) ? entry.staffMembers.join(", ") : (entry.staffMembers || ""),
       // PATCH 006: the teacher/classroom the student physically came from
       // immediately before this PACE visit — NOT the roster's homeroom
       // Teacher. Sent speculatively, same as the other fields above with
@@ -302,9 +361,42 @@ const GRAPH = {
     });
   },
 
-  // Closes an open visit — the ONLY field this app is ever allowed to patch
-  // on an existing record (spec section 19/21).
+  // PATCH 009: updates the existing SharePoint list item selected from
+  // today's Recent Activity. Uses the same display-name mapping as CREATE,
+  // so only confirmed writable columns are patched; missing logical fields
+  // are dropped by mapFields() exactly as they are on initial save.
+  async updatePaceVisit(itemId, entry) {
+    if (!itemId) throw new Error("A SharePoint visit item is required for editing.");
+    return this.updateMappedListItem("IEP_Pace_Visits", itemId, {
+      "PACE Room":         entry.paceRoom || "",
+      "Student":           entry.studentName || "",
+      "Date":              entry.date || "",
+      "Time In":           entry.timeIn || "",
+      "Time Out":          entry.timeOut || "",
+      "Duration":          entry.durationMinutes ?? undefined,
+      "Reason":            Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
+      "Intervention Used": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
+      "SCM Used":          entry.scmUsed === true,
+      "Notes":             entry.notes || "",
+      "Behavior Specialist": Array.isArray(entry.staffMembers) ? entry.staffMembers.join(", ") : (entry.staffMembers || ""),
+      "Teacher Came From": entry.cameFromTeacher || ""
+    });
+  },
+
+  // Legacy open-visit close path — Recent Activity corrections use the
+  // separate full-field updatePaceVisit() method above.
   async closePaceVisit(itemId, timeOut) {
     return this.updateMappedListItem("IEP_Pace_Visits", itemId, { "Time Out": timeOut });
+  },
+
+  async completePaceVisit(itemId, entry) {
+    if (!itemId) throw new Error("A SharePoint visit item is required for completion.");
+    return this.updateMappedListItem("IEP_Pace_Visits", itemId, {
+      "Time Out":          entry.timeOut || "",
+      "Duration":          entry.durationMinutes ?? undefined,
+      "Intervention Used": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
+      "SCM Used":          entry.scmUsed == null ? undefined : entry.scmUsed === true,
+      "Notes":             entry.notes || ""
+    });
   }
 };

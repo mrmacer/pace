@@ -97,13 +97,15 @@ const DemoStorage = {
       "Duration":           entry.durationMinutes ?? null,
       "Reason":             Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
       "Intervention Used":  Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
-      "SCM Used":           entry.scmUsed === true,
+      "SCM Used":           entry.scmUsed == null ? null : entry.scmUsed === true,
       "Notes":              entry.notes || "",
       // PATCH 004: kept here for demo parity/completeness even though
       // production doesn't persist "Staff Member" today (it's a
       // Person-type column this project has no write infrastructure for —
-      // see README). Demo still models the full logical visit.
-      "Staff Member":       entry.staffMember || "",
+      // see README). Demo still models the full logical visit. PATCH 010:
+      // one or more names, comma-joined — same convention as Reason/
+      // Intervention Used just above.
+      "Staff Member":       Array.isArray(entry.staffMembers) ? entry.staffMembers.filter(Boolean).join(", ") : (entry.staffMembers || ""),
       // PATCH 006: replaces the old homeroom "Teacher" (STATE.teacher,
       // removed along with the homeroom-grouped Student screen) — this is
       // specifically who the student physically came from for THIS visit,

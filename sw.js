@@ -9,7 +9,7 @@
    "Unable to sync" retry screen when offline, per the app's design).
    ───────────────────────────────────────────────────────────────────────── */
 
-const CACHE_NAME = "pace-tracker-shell-v9"; // bumped: PATCH 006 search-first student + Teacher Came From
+const CACHE_NAME = "pace-tracker-shell-v13"; // PATCH 008 live visits + same-row completion
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -19,6 +19,8 @@ const SHELL_FILES = [
   "./auth.js",
   "./graph.js",
   "./roster.js",
+  "./recent-activity.js",
+  "./visit-workflow.js",
   "./pace-data.js",
   "./diagnostic.js", // TEMPORARY PATCH 003 DIAGNOSTIC — remove this line when retracted
   "./app.js",

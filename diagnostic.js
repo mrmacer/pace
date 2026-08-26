@@ -16,8 +16,8 @@
 
 const DIAGNOSTIC_CONCEPTS = [
   "Student", "PACE Room", "Date", "Time In", "Time Out", "Duration",
-  "Staff Member", "Reason", "Behavior", "Interventions", "Support",
-  "SCM Used", "SCM", "Notes", "Entry ID", "Submitted By", "Submitted At"
+  "Staff Member", "Behavior Specialist", "Reason", "Behavior", "Interventions",
+  "Support", "SCM Used", "SCM", "Notes", "Entry ID", "Submitted By", "Submitted At"
 ];
 
 const Diagnostic = {
@@ -40,12 +40,22 @@ const Diagnostic = {
     if (!resp.ok) throw new Error(`Column fetch failed: ${resp.status}`);
     const data = await resp.json();
 
+    // PATCH 010: a bare "text" type doesn't say whether a column is
+    // SharePoint's "Single line of text" (hard 255-character cap) or
+    // "Multiple lines of text" (no such cap) — Graph represents both as a
+    // `text` facet, distinguished only by `text.allowMultipleLines`/
+    // `text.maxLength`. This was the missing piece needed to answer the
+    // Notes-length question conclusively instead of guessing — see
+    // README "Notes column type — still unconfirmed."
     const columns = (data.value || []).map(c => ({
       displayName: c.displayName,
       internalName: c.name,
       type: c.text ? "text" : c.choice ? "choice" : c.dateTime ? "dateTime"
           : c.boolean ? "boolean" : c.number ? "number" : c.personOrGroup ? "personOrGroup"
-          : c.lookup ? "lookup" : "other"
+          : c.lookup ? "lookup" : "other",
+      textDetail: c.text
+        ? `allowMultipleLines: ${c.text.allowMultipleLines === true}, maxLength: ${c.text.maxLength ?? "(default 255)"}`
+        : null
     }));
 
     // Does a column with this EXACT display name exist? (Never guesses —
@@ -53,7 +63,7 @@ const Diagnostic = {
     const conceptMap = DIAGNOSTIC_CONCEPTS.map(concept => {
       const match = columns.find(c => c.displayName === concept);
       return match
-        ? { concept, status: "FOUND", internalName: match.internalName, type: match.type }
+        ? { concept, status: "FOUND", internalName: match.internalName, type: match.type, textDetail: match.textDetail }
         : { concept, status: "NOT FOUND" };
     });
 
@@ -82,13 +92,13 @@ const Diagnostic = {
     lines.push("");
     lines.push("=== A. Live column schema ===");
     result.columns.forEach(c => {
-      lines.push(`${c.displayName}  |  internal: ${c.internalName}  |  type: ${c.type}`);
+      lines.push(`${c.displayName}  |  internal: ${c.internalName}  |  type: ${c.type}${c.textDetail ? `  |  ${c.textDetail}` : ""}`);
     });
     lines.push("");
     lines.push("=== B. Requested concept -> live column lookup ===");
     result.conceptMap.forEach(c => {
       lines.push(c.status === "FOUND"
-        ? `${c.concept}: FOUND — internal "${c.internalName}", type ${c.type}`
+        ? `${c.concept}: FOUND — internal "${c.internalName}", type ${c.type}${c.textDetail ? ` (${c.textDetail})` : ""}`
         : `${c.concept}: NOT FOUND`);
     });
     lines.push("");

@@ -10,18 +10,25 @@ administrators through MAC Walkthrough's dashboard/reports.
 PACE ROOM iPad → PACE Room Tracker → Microsoft Graph → IEP_Pace_Visits → MAC Walkthrough
 ```
 
-Entry workflow (as of PATCH 006):
+PATCH 008 exposes two intentionally separate entry paths:
 
 ```
-Home → Room → Behavior Specialist → Student (search-first) →
-Teacher Came From → Visit Info → Reason → Support → SCM → Notes →
-Confirm → Save → (back to) Student Search
+START VISIT:
+Room → Specialist → Student → Teacher Came From → Reason → Time In → Start
+
+LOG COMPLETED VISIT:
+Room → Specialist → Student → Teacher Came From → Date/Times → Reason →
+Support → SCM → Notes → Confirm → Save
+
+MARK COMPLETE (an existing open row):
+Currently in PACE → Time Out → Support → SCM → Notes → Confirm → Complete
 ```
 
-Saving returns to **Student Search**, not Room — the same specialist
-commonly logs several students back-to-back. Room and Specialist persist
-for the whole room session; Student/Teacher-Came-From/visit fields reset
-each time. See `app.js`'s `enterRoom()`/`resetTrip()`/save-handler comments.
+Starting creates one open `IEP_Pace_Visits` row with completion fields
+blank. Mark Complete patches that same item id; it never creates a second
+row. Completed-entry saves still return to Student Search for rapid
+back-to-back logging. A live start or completion returns to the room so
+the Currently in PACE list updates immediately.
 
 **PATCH 004 introduced a homeroom-Teacher-grouped Student screen (Room →
 Specialist → Teacher → filtered Student list) — PATCH 006 removed it.** The
@@ -84,10 +91,9 @@ navigation menu at all; the workflow itself *is* the navigation.
 
 ## Demo mode
 
-`APP_MODE` in `config.js` is currently `"demo"` — the deployed/testing
-build requires **no Microsoft sign-in and makes zero calls to Microsoft
-Graph, MSAL, or SharePoint**. It's safe to share the URL publicly for
-hands-on testing.
+Local/preview URLs default to demo mode; `?demo=1` also forces demo on any
+host. Demo requires **no Microsoft sign-in and makes zero calls to
+Microsoft Graph, MSAL, or SharePoint**.
 
 - **Fake roster** (`demo-data.js`, `DEMO_STUDENTS`) — six `SIM-00N` /
   first-name-plus-initial students, no real IU29 names.
@@ -99,8 +105,42 @@ hands-on testing.
   inside the UI code itself.
 - **Unified adapter** (`pace-data.js`, `PACE_DATA`) — the only place that
   branches on `APP_MODE`. `app.js` calls `PACE_DATA.getStudents()` /
-  `.getVisits()` / `.createVisit()` / `.closeVisit()` and never touches
+  `.getVisits()` / `.getRecentVisits()` / `.createVisit()` / `.completeVisit()` /
+  `.updateVisit()` and never touches
   `GRAPH`, `ROSTER`, or `DemoStorage` directly.
+- **Recent Activity (PATCH 008)** — opening the existing screen, or tapping
+  its small **Refresh** button, makes a fresh provider read for the iPad's
+  local **today** and shows at most the 10 newest completed visits. In
+  production, the `IEP_Pace_Visits` Date filter is applied in the Graph
+  list request, so historical rows are never downloaded for this view.
+  In demo, the same provider method reads and filters localStorage and
+  makes no Microsoft request. If today's rows contain `PACE Room` values,
+  the selected room is enforced. If all room values are blank (the current
+  production schema cannot persist that logical field), the list falls
+  back to today's completed visits across rooms instead of showing a false
+  empty state. Cards are an allow-list only: student display name, Time
+  Out, duration, reason, optional Behavior Specialist, and room only when
+  the result is not already room-scoped. Missing-Time-Out legacy/open rows
+  are excluded. No notes, IDs, emails, raw timestamps, history, exports,
+  student filtering, or analytics are rendered.
+- **Same-day editing (PATCH 009)** — every Recent card has an explicit
+  **Edit today's visit** action. It preloads the existing Specialist →
+  Student → Teacher Came From → Visit Details → Reason → Support → SCM →
+  Notes → Confirm workflow, patches the original row, then returns to a
+  freshly loaded Recent list. The date is locked to local today in the UI,
+  and `PACE_DATA.updateVisit()` independently rejects a non-today payload.
+  Cards remain privacy-limited; notes and the other full details appear
+  only after staff deliberately enter the editor. Demo updates the same
+  localStorage row with zero Microsoft traffic. Production patches every
+  writable live `IEP_Pace_Visits` field; the known missing columns and
+  Person-field specialist limitation below still apply.
+- **Live visits + same-row completion (PATCH 008)** — demo creates an open
+  localStorage row (`Time Out`, Duration, Intervention, SCM, and Notes are
+  blank), renders it in Currently in PACE for its room, and later updates
+  that exact row through `PACE_DATA.completeVisit()`. The completed row
+  disappears from Currently in PACE and becomes eligible for Recent
+  Activity immediately. Stable entry IDs plus the UI saving lock prevent
+  rapid double-tap duplicates.
 - **Hard safety block** — `GRAPH._get/_post/_patch` (the only three
   functions that ever call `fetch()` against Microsoft endpoints) throw
   immediately in demo mode via `assertGraphAllowed()`, so this is a single
@@ -111,26 +151,22 @@ hands-on testing.
 - **Demo banner** — persistent, fixed top strip (`#demoBanner`), shown only
   when `APP_MODE === "demo"`; every screen's own top offset shifts down to
   clear it (see `body.demo-mode .screen` in `styles.css`).
-- **`SIMULATED` badge** — shown on any visit row with `demo: true` (Currently
-  in PACE + Recent), so nothing reads as a real record.
+- **`SIMULATED` badge** — shown on demo rows in Currently in PACE; the
+  persistent demo banner identifies Recent Activity without adding a
+  non-operational field to its privacy-limited cards.
 - **Reset Demo Data** — bottom of the Recent screen, demo-only, confirms
   before calling `DemoStorage.reset()`.
-- **Verified**: room→student→reason→support→SCM→notes→confirm→save→Currently
-  in PACE→reload-persists→Exit→Time-Out-updates→Recent→Reset, all exercised
-  in-browser with zero network requests recorded throughout (confirmed via
-  the browser's network panel — nothing to `login.microsoftonline.com`,
-  `graph.microsoft.com`, or `siu29.sharepoint.com`).
+- **Automated verification** covers open creation, refresh persistence,
+  room separation, duplicate-entry-id protection, same-id completion,
+  transition from Currently in PACE to Recent, and zero Microsoft calls.
 
-**To switch to the real thing:** set `APP_MODE = "production"` in
-`config.js` and complete "Manual configuration required" below first. No
-production auth/Graph code was removed or altered to build demo mode —
-only guarded — so this is a one-line flip, not a rebuild.
+The known production hostname selects production automatically. Use
+`?production=1` only for an intentional local production test after the
+manual configuration below is complete.
 
-**Deploying the demo publicly**: this project isn't yet linked to a Vercel
-project (unlike MAC Walkthrough). Deploying makes the app reachable at a
-real public URL, so that step wasn't run automatically — see the
-"Deploying" section below and run `vercel deploy --prod` (or `vercel link`
-first, if this is the first deploy) when ready.
+**Deployment**: this directory is linked to the Vercel project
+`pace-room-tracker`. Deploy manually with `vercel deploy --prod` after
+local verification; code changes are not deployed automatically.
 
 ## Known gaps / decisions made without further data model changes
 
@@ -144,8 +180,9 @@ first, if this is the first deploy) when ready.
 | Duration | `Duration` | number | **fixed in PATCH 003** — was never sent; now sends whole minutes from `visitDurationMinutes()` |
 | Reason/Behavior | `Reason` | choice | **fixed in PATCH 003** — app was sending `"Behavior"`, which doesn't exist |
 | Interventions/Support | `Intervention Used` | choice | **fixed in PATCH 003** — app was sending `"Interventions"`, which doesn't exist |
-| Notes | `Notes` | text | correct, unchanged |
+| Notes | `Notes` | text | **PATCH 010: Single line vs. Multiple lines still unconfirmed — see below** |
 | Staff identity | `Staff Member` | **personOrGroup** | **not written — see below** |
+| Behavior Specialist(s) | `Behavior Specialist` | *(unconfirmed — sent speculatively)* | **PATCH 010: now one or more, comma-joined — see below** |
 | Entry ID (dedupe key) | *(none)* | — | **not a real column — see below** |
 | **PACE Room** | *(none)* | — | **not a real column — see below, most significant gap** |
 | SCM | *(none)* | — | **not a real column — see below** |
@@ -162,9 +199,11 @@ first, if this is the first deploy) when ready.
   matching column exists), but **this needs a decision**: either an admin
   adds a room-identifying column, or there's an existing mechanism for
   this the app hasn't been told about. One direct, currently-live
-  consequence: the Recent screen's per-room filter
-  (`v["PACE Room"] === STATE.room`) will show nothing for real production
-  rows until this is resolved, since every row's `PACE Room` is blank.
+  consequence: Recent Activity cannot reliably enforce per-room scoping
+  for real production rows. PATCH 008 detects that all room values are
+  blank and falls back to today's visits across rooms instead of showing
+  a false empty state; adding the column restores true room scoping and
+  makes room edits persist.
 - **`Staff Member` is a Person field (`personOrGroup`), not text.**
   Writing to it requires resolving the signed-in user to a SharePoint
   site-user id first (a separate Graph call this project has no
@@ -240,17 +279,96 @@ first, if this is the first deploy) when ready.
   `Teacher Came From`, type **Single line of text**. Not created
   automatically, per instruction. Run the Patch 003 diagnostic (still in
   place) after adding it to confirm the exact internal name Graph assigns.
-- **PATCH 006: `PACE_DATA.getTeachers()`** (the "Teacher Came From"
-  picklist) combines two sources — Active `Role = "Teacher"` rows in
-  `IEP_Users2` (same mechanism as the Behavior Specialist picker, see
-  Patch 005), plus unique `Teacher` values already on the PACE-eligible
-  roster (`IEP_Students_2026_27`) — trimmed, case-insensitively deduped,
-  sorted alphabetically. **To add a selectable teacher later, no
-  deployment is needed**: add a row to `IEP_Users2` with `Role = Teacher`,
+- **`PACE_DATA.getTeachers()`** (the "Teacher Came From" picklist) —
+  **`IEP_Users2` is the sole authoritative source** for this, same as it
+  already is for Behavior Specialists: Active rows with `Role = "Teacher"`,
+  `Name` field sorted alphabetically, via the same `GRAPH.
+  getActiveUsersByRole()` the Specialist picker uses. **The student
+  roster's `Teacher` column is deliberately NOT used to build this list.**
+  Patch 006 originally combined both sources; **Patch 007 removed the
+  roster side** after production data showed `IEP_Users2` and the
+  roster's `Teacher` column use different naming conventions for the same
+  person (e.g. `"Andruchek"` vs. `"Andruchek, B."`), which surfaced as
+  apparent duplicates. No fuzzy or surname-based merge is attempted
+  anywhere in this codebase — two people can legitimately share a
+  surname — so reconciling those naming conventions is a data-governance
+  decision for IU29, not something this app should guess at. If the
+  `IEP_Users2` query fails or returns zero rows, the picker shows **no**
+  named teachers rather than silently falling back to the roster (that
+  fallback is exactly what would reintroduce the problem) — "Other / Not
+  Listed" (with manual entry) is always available regardless, so the
+  workflow is never blocked. **To add a selectable teacher, no deployment
+  is needed**: add a row to `IEP_Users2` with `Role = Teacher`,
   `Active = Yes`, a `Name`, and any placeholder `User ID` — `Email` can
   stay blank if this person is only ever selected as a PACE origin
-  teacher. They appear automatically on the next roster/user refresh
-  (i.e., the next time someone opens the Teacher Came From screen).
+  teacher. They appear automatically the next time someone opens the
+  Teacher Came From screen.
+
+### PATCH 010 — multiple Behavior Specialists + expanded Notes
+
+**Multiple Behavior Specialists.** The specialist screen now supports
+selecting one or more people (`STATE.staffMembers`, an array — replaces the
+old single-value `STATE.staffMember`). Tapping a card toggles it; nothing
+navigates forward until the new CONTINUE button is tapped (previously,
+tapping the one allowed specialist advanced immediately). Screen title is
+now "Select Behavior Specialist(s)"; "Behavior Specialist" terminology was
+kept rather than switching to "Behavior Interventionist" — it's already
+consistent with everything else in this codebase (`IEP_Users2`'s
+`Role = "Behavior Specialist"`, `CONFIG.BEHAVIOR_SPECIALISTS`,
+`getSpecialists()`, the diagnostic's concept list) and with the live
+`Role` value itself, which nothing here should drift out of sync with.
+
+Multiple names are joined with `", "` and split back with the same
+`selections()` helper already used for `Reason`/`Intervention Used` (see
+`recent-activity.js`'s `specialistNames()`) — this is the exact same
+established multi-value-in-a-text-column convention this codebase already
+used for those two fields, not a new pattern. Written to the **same**
+speculative `Behavior Specialist` text column PATCH 004/005 already used
+for a single name (see the schema table above) — multi-select doesn't
+change whether that column exists on the live list; it was already
+recommended, still not confirmed. The `Staff Member` Person field remains
+unwritten for the same reason as always (no site-user resolution
+infrastructure) — now doubly true for a list of names, not a new gap.
+
+Display: Confirm and Mark Complete show every name on its own line under a
+"Behavior Specialist" (or, for 2+, "Behavior Specialists") label. Recent
+Activity and Currently in PACE — both space-constrained — show up to 2 names
+in full and "First Name +N" beyond that (`RECENT_ACTIVITY.formatSpecialistsCompact()`).
+Mark Complete never re-asks for specialists: they're carried over read-only
+from the open visit (`openExitScreen()`), exactly as `completeVisit()`'s
+SharePoint patch already never touched that field.
+
+Older single-specialist records still render correctly — `specialistNames()`
+on a plain one-name string just returns a one-element array.
+
+**Expanded Notes.** The actual limitation was **entirely frontend**: a
+`maxlength="500"` attribute on `#noteText` in `index.html`, with no
+corresponding limit anywhere else — no JS truncation (`STATE.notes` is only
+ever `.trim()`'d, never sliced) and no truncation in `DemoStorage`/`GRAPH`'s
+payload builders (both pass `entry.notes` straight through). That attribute
+is now removed; the textarea (still `rows="6"`, unchanged) accepts natural
+multi-paragraph typing with no arbitrary cap, and no character counter was
+added (there is no confirmed *meaningful* limit left to display — see next
+paragraph).
+
+**Notes column type — still unconfirmed, don't guess.** The PATCH 003
+diagnostic confirmed `Notes` exists and is Graph-`text`-typed, but Graph
+represents both SharePoint "Single line of text" (hard 255-character cap)
+and "Multiple lines of text" (no such cap) as the same `text` facet — the
+diagnostic's original type classification could not, and still cannot from
+existing data, tell them apart. **This patch extends the diagnostic**
+(`diagnostic.js`) to also capture `text.allowMultipleLines`/`text.maxLength`
+for every text column, so running it once against the real tenant will give
+a conclusive answer next time — until then, treat notes over roughly 250
+characters as *at risk* of being silently truncated by SharePoint on save if
+the live column does turn out to be Single line. Two ways forward, neither
+performed automatically:
+- Run the (now-enhanced) diagnostic while signed in to production — instant,
+  read-only, authoritative answer.
+- Or just convert `Notes` to **Multiple lines of text** in SharePoint list
+  settings regardless — a safe, purely-additive change (existing values are
+  preserved; nothing currently reading a "Single line" `Notes` value breaks)
+  that removes the question either way.
 
 ### Temporary diagnostic tool
 
@@ -271,8 +389,25 @@ production and no longer needed.
 2. Confirm the signed-in test account has an **Active** row in
    `IEP_Users2` and the roster list has students flagged **PACE Enabled**.
 
-No other manual SharePoint changes are required — this app only reads/
-writes the same list MAC Walkthrough already uses successfully.
+3. **Recommended before multi-iPad live use:** add writable Single line of
+   text columns named `PACE Room`, `Behavior Specialist`, and
+   `Teacher Came From`, plus a Yes/No column named `SCM Used`, to
+   `IEP_Pace_Visits`. The app schema-maps these display names automatically.
+   Until then, this iPad keeps only room/specialist/teacher context locally
+   by SharePoint item id (never student data), so its own newly started
+   visits stay room-scoped after refresh. Another iPad cannot infer the room
+   for an open row whose SharePoint record has no room value.
+   **PATCH 010 note:** `Behavior Specialist` now receives a comma-joined
+   list of one or more names — a couple of names comfortably fits Single
+   line of text's 255-character cap, but if you expect a PACE room to
+   regularly have several specialists logged on one visit, use **Multiple
+   lines of text** instead for headroom; either works with zero code
+   changes on this end.
+4. **Recommended, low-effort:** convert the existing `Notes` column to
+   **Multiple lines of text** if it isn't already (unconfirmed either way —
+   see "PATCH 010" below; the enhanced diagnostic will tell you for
+   certain). Safe, additive, and removes any risk of a long note being
+   silently cut off at save time.
 
 ## Running locally
 
@@ -304,8 +439,8 @@ Walkthrough's `index.html`/`app.js` bundle.
 - [x] Phase 3 — Student selection + automatic Time In
 - [x] Phase 4 — Reason / support / SCM workflow
 - [x] Phase 5 — SharePoint CREATE (`GRAPH.savePaceVisit`)
-- [x] Phase 6 — Currently in PACE + EXIT workflow (Time Out PATCH only)
-- [x] Phase 7 — Recent entries (read-only, today, this room)
+- [x] Phase 6 — Currently in PACE + full same-row completion workflow
+- [x] Phase 7 — Recent entries (read-only, today, selected-room preference)
 - [x] Phase 8 — iPad/PWA optimization (manifest, standalone display, app
       shell service worker, safe-area insets, 44px+ touch targets)
 - [ ] Phase 9 — Security/permissions verification — **needs a live sign-in
@@ -324,6 +459,8 @@ auth.js       — MSAL init/login/logout, IEP_Users2 staff gate (demo-guarded)
 graph.js      — Graph client: schema-mapped CRUD, scoped to 3 lists only
                  (demo-guarded via assertGraphAllowed())
 roster.js     — loads + filters the PACE-enabled student roster
+recent-activity.js — pure Recent selection, sorting, room scope, card allow-list
+visit-workflow.js — pure workflow modes, duration validation, open-room selection
 pace-data.js  — PACE_DATA: the one place demo vs. production is decided
 app.js        — screen navigation + all panel logic/state (mode-agnostic —
                  talks only to PACE_DATA)

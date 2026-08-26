@@ -69,7 +69,8 @@ const CONFIG = {
   // Local storage keys (device-local only — never student data at rest
   // beyond the current in-progress entry, per section 23 of the spec).
   STORAGE_KEYS: {
-    LAST_ROOM: "paceTracker_lastRoom"
+    LAST_ROOM: "paceTracker_lastRoom",
+    VISIT_CONTEXT: "paceTracker_visitContext"
   },
 
   // Room identifiers. IMPORTANT: these raw slugs (not display labels) are

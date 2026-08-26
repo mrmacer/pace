@@ -250,6 +250,14 @@ body[data-room="pace-room-2"] {
 }
 .current-card-exit:active { transform: scale(.96); }
 
+.room-visit-actions { margin-bottom: 28px; }
+.action-caption {
+  margin: 7px 0 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
 /* ── Student grid ─────────────────────────────────────────────────────── */
 .search-input {
   width: 100%; font-size: 17px; padding: 14px 16px; border-radius: var(--radius);
@@ -303,6 +311,9 @@ body[data-room="pace-room-2"] {
   border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-primary);
   font-family: inherit;
 }
+.form-input-lg:disabled { color: var(--text-secondary); background: var(--bg); opacity: 1; }
+.field-hint { margin-top: 8px; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.edit-identity-hint { text-align: center; margin: -4px auto 2px; }
 /* Side-by-side on wide/landscape iPad layouts; stacks cleanly below. */
 .visit-time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 560px) {
@@ -366,13 +377,32 @@ body[data-room="pace-room-2"] {
 }
 
 /* ── Recent list ──────────────────────────────────────────────────────── */
-.recent-list { display: flex; flex-direction: column; gap: 10px; }
-.recent-row {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+.recent-scope {
+  width: min(100%, 760px); margin: 0 auto -4px; color: var(--text-secondary);
+  font-size: 13px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase;
 }
-.recent-row-top { display: flex; justify-content: space-between; font-weight: 700; font-size: 16px; }
-.recent-row-sub { font-size: 13px; color: var(--text-secondary); }
+.btn-refresh { min-width: 76px; text-align: right; }
+.btn-refresh:disabled { opacity: .45; cursor: wait; }
+.recent-list { width: min(100%, 760px); margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.recent-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 16px 18px; min-height: 112px;
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+}
+.recent-card-name { font-size: 19px; font-weight: 800; line-height: 1.25; }
+.recent-card-time { font-size: 16px; font-weight: 700; color: var(--text-secondary); line-height: 1.35; }
+.recent-card-reason { font-size: 15px; font-weight: 700; color: var(--text-primary); line-height: 1.35; }
+.recent-card-specialist, .recent-card-room { font-size: 14px; color: var(--text-secondary); line-height: 1.35; }
+.recent-card-room { font-weight: 700; }
+.recent-edit-btn {
+  align-self: flex-start; margin-top: 8px; min-height: 44px; padding: 9px 14px;
+  border: 1.5px solid var(--color-primary); border-radius: 10px;
+  background: var(--color-primary-light); color: var(--color-primary-dark);
+  font-size: 14px; font-weight: 800; cursor: pointer;
+}
+.recent-edit-btn:active { transform: scale(.97); }
+.recent-edit-btn:disabled { opacity: .55; cursor: wait; transform: none; }
+.recent-error { color: var(--red); }
 .correction-hint { text-align: center; color: var(--text-muted); font-size: 13px; padding: 16px 8px 4px; }
 
 /* ── Toast ────────────────────────────────────────────────────────────── */

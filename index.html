@@ -105,15 +105,14 @@
     </header>
     <span class="room-badge"></span>
     <div class="panel-inner">
-      <button class="btn btn-primary btn-huge btn-full" id="newStudentBtn">+ Student Entering PACE</button>
+      <div class="room-visit-actions">
+        <button class="btn btn-primary btn-huge btn-full" id="startLiveVisitBtn">START VISIT</button>
+        <p class="action-caption">Student is entering PACE now</p>
+        <button class="btn btn-secondary btn-lg btn-full" id="logCompletedVisitBtn">LOG COMPLETED VISIT</button>
+        <p class="action-caption">Visit already happened</p>
+      </div>
 
-      <!-- PATCH 001: "Currently in PACE" / open-visit UI is legacy under the
-           completed-visit workflow (visits are now saved whole, with Time
-           Out already filled in, so there's normally nothing "open" to
-           show here). Hidden, not removed — the underlying fetch/render
-           code, and the Exit screen it feeds, are fully intact for future
-           reuse. Remove the "hidden" class to bring this back. -->
-      <div id="openVisitsLegacy" class="hidden">
+      <div id="openVisitsLegacy">
         <h3 class="section-label">Currently in PACE</h3>
         <div id="currentlyInPace" class="current-list">
           <p class="empty-hint">Loading…</p>
@@ -131,8 +130,10 @@
     </header>
     <span class="room-badge"></span>
     <div class="panel-inner">
-      <h3 class="section-label">Select Behavior Specialist</h3>
+      <h3 class="section-label">Select Behavior Specialist(s)</h3>
       <div id="specialistGrid" class="student-grid"></div>
+      <p class="staff-context-line" id="specialistSelectedCount"></p>
+      <button class="btn btn-primary btn-lg btn-full sticky-next" id="specialistContinueBtn" disabled>CONTINUE</button>
     </div>
   </section>
 
@@ -180,15 +181,22 @@
     <header class="panel-header">
       <button class="btn-back" data-nav="cameFrom">&larr; Back</button>
       <h2 class="panel-title">Visit Details</h2>
-      <span></span>
+      <button class="btn-text hidden" id="visitEditCancelBtn" type="button">Cancel edit</button>
     </header>
     <span class="room-badge"></span>
     <div class="panel-inner">
       <p class="visit-student-name" id="visitStudentName"></p>
+      <p class="field-hint edit-identity-hint hidden" id="editIdentityHint">Use Back to change the student, originating teacher, or Behavior Specialist.</p>
 
       <div class="form-card visit-date-card">
         <label class="walk-field-label" for="visitDateInput">Visit Date <span class="req">*</span></label>
         <input type="date" class="form-input-lg" id="visitDateInput">
+        <p class="field-hint hidden" id="visitDateEditHint">Same-day edits stay on today's date.</p>
+      </div>
+
+      <div class="form-card hidden" id="visitRoomCard">
+        <label class="walk-field-label" for="visitRoomInput">PACE Room</label>
+        <select class="form-input-lg" id="visitRoomInput"></select>
       </div>
 
       <div class="visit-time-row">
@@ -196,7 +204,7 @@
           <label class="walk-field-label" for="visitTimeInInput">Time In <span class="req">*</span></label>
           <input type="time" class="form-input-lg" id="visitTimeInInput">
         </div>
-        <div class="form-card">
+        <div class="form-card" id="visitTimeOutCard">
           <label class="walk-field-label" for="visitTimeOutInput">Time Out <span class="req">*</span></label>
           <input type="time" class="form-input-lg" id="visitTimeOutInput">
         </div>
@@ -275,7 +283,7 @@
     <span class="room-badge"></span>
     <div class="panel-inner">
       <button class="btn btn-secondary btn-lg btn-full" id="addNoteBtn">+ Add Note (Optional)</button>
-      <textarea id="noteText" class="note-textarea hidden" rows="6" placeholder="Optional note…" maxlength="500"></textarea>
+      <textarea id="noteText" class="note-textarea hidden" rows="6" placeholder="Optional note…"></textarea>
       <button class="btn btn-primary btn-lg btn-full sticky-next" id="notesNextBtn">Next</button>
     </div>
   </section>
@@ -284,7 +292,7 @@
   <section class="screen" data-screen="confirm">
     <header class="panel-header">
       <button class="btn-back" data-nav="notes">&larr; Back</button>
-      <h2 class="panel-title">Ready To Log</h2>
+      <h2 class="panel-title" id="confirmTitle">Ready To Log</h2>
       <span></span>
     </header>
     <span class="room-badge"></span>
@@ -309,7 +317,7 @@
     <div class="overlay hidden" id="savedOverlay">
       <div class="overlay-card center-content">
         <div class="save-check">&#10003;</div>
-        <p class="gate-status">PACE visit saved</p>
+        <p class="gate-status" id="savedOverlayMessage">PACE visit saved</p>
       </div>
     </div>
   </section>
@@ -318,12 +326,17 @@
   <section class="screen" data-screen="exit">
     <header class="panel-header">
       <button class="btn-back" data-nav="room">&larr; Cancel</button>
-      <h2 class="panel-title">Student Leaving PACE</h2>
+      <h2 class="panel-title">Mark Visit Complete</h2>
       <span></span>
     </header>
     <div class="panel-inner">
       <div class="confirm-card" id="exitCard"></div>
-      <button class="btn btn-primary btn-huge btn-full sticky-next" id="confirmExitBtn">CONFIRM EXIT</button>
+      <div class="form-card">
+        <label class="walk-field-label" for="exitTimeOutInput">Time Out <span class="req">*</span></label>
+        <input type="time" class="form-input-lg" id="exitTimeOutInput">
+      </div>
+      <p class="visit-time-error hidden" id="exitTimeError" role="alert"></p>
+      <button class="btn btn-primary btn-huge btn-full sticky-next" id="confirmExitBtn">NEXT</button>
     </div>
 
     <div class="overlay hidden" id="exitSyncErrorOverlay">
@@ -338,16 +351,17 @@
     </div>
   </section>
 
-  <!-- ── RECENT (read only) ───────────────────────────────────────── -->
+  <!-- ── RECENT (today-only cards + same-day editing) ─────────────── -->
   <section class="screen" data-screen="recent">
     <header class="panel-header">
       <button class="btn-back" data-nav="room">&larr; Back</button>
       <h2 class="panel-title">Recent Activity</h2>
-      <span></span>
+      <button class="btn-text btn-refresh" id="recentRefreshBtn" type="button">Refresh</button>
     </header>
     <div class="panel-inner">
+      <p class="recent-scope" id="recentScope">Today</p>
       <div id="recentList" class="recent-list"><p class="empty-hint">Loading…</p></div>
-      <p class="correction-hint">Need to correct an entry? Contact an administrator.</p>
+      <p class="correction-hint">Today's visits can be edited here. For an older entry, contact an administrator.</p>
       <!-- Demo-only admin control (spec §11) — hidden by default, shown by
            app.js only when APP_MODE === "demo". -->
       <button class="btn-reset-demo hidden" id="resetDemoBtn">Reset Demo Data</button>
@@ -363,6 +377,8 @@
 <script src="auth.js"></script>
 <script src="graph.js"></script>
 <script src="roster.js"></script>
+<script src="recent-activity.js"></script>
+<script src="visit-workflow.js"></script>
 <script src="pace-data.js"></script>
 <!-- TEMPORARY PATCH 003 DIAGNOSTIC — delete this line along with diagnostic.js -->
 <script src="diagnostic.js"></script>

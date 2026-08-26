@@ -48,12 +48,22 @@ const BACK_NAV_PRERENDER = {
   specialist: () => renderSpecialistGrid(),
   student: () => renderStudentGrid(),
   cameFrom: () => renderCameFromGrid(),
-  visitinfo: () => renderVisitInfo()
+  visitinfo: () => renderVisitInfo(),
+  notes: () => renderNotesScreen()
 };
 document.querySelectorAll("[data-nav]").forEach(btn => {
-  const target = btn.dataset.nav;
-  if (target === "recent") return;
+  if (btn.dataset.nav === "recent") return;
   btn.addEventListener("click", () => {
+    // Read the target at click time. Same-day editing temporarily changes
+    // the Specialist screen's Cancel destination from Room to Recent.
+    const target = btn.dataset.nav;
+    if (target === "recent" && isEditingVisit()) {
+      resetTrip();
+      document.querySelector('[data-screen="specialist"] .btn-back').dataset.nav = "room";
+      nav("recent", "back");
+      loadRecentActivity();
+      return;
+    }
     if (BACK_NAV_PRERENDER[target]) BACK_NAV_PRERENDER[target]();
     nav(target, "back");
   });
@@ -137,27 +147,24 @@ function minutesBetween(hhmmIn, hhmmOut) {
 // invalid, not a visit that "wrapped around," so this returns null rather
 // than guessing.
 function visitDurationMinutes(timeIn, timeOut) {
-  if (!timeIn || !timeOut) return null;
-  const [ih, im] = timeIn.split(":").map(Number);
-  const [oh, om] = timeOut.split(":").map(Number);
-  const inMin = ih * 60 + im, outMin = oh * 60 + om;
-  if (outMin <= inMin) return null;
-  return outMin - inMin;
+  return PACE_VISIT_WORKFLOW.durationMinutes(timeIn, timeOut);
 }
 
 /* ── App state ────────────────────────────────────────────────────────── */
 
 const STATE = {
   room: null,
-  paceVisits: [],       // cached IEP_Pace_Visits rows (display-name keyed) for the active room's day
+  paceVisits: [],       // cached today's IEP_Pace_Visits rows (display-name keyed)
   // PATCH 004: intentionally separate from AUTH's authenticated Microsoft
-  // identity — staffMember is the selected Behavior Specialist (PATCH
+  // identity — staffMembers is the selected Behavior Specialist(s) (PATCH
   // 005: loaded dynamically from IEP_Users2, see pace-data.js's
   // getSpecialists()), never conflated with who actually signed in.
   // Sticky for the whole room session (not cleared by resetTrip()) since
-  // the same specialist typically logs several visits in a row — see
+  // the same specialist(s) typically log several visits in a row — see
   // enterRoom()/"Change Staff" for where it DOES reset.
-  staffMember: null,
+  // PATCH 010: one or more — was a single string (STATE.staffMember)
+  // before multi-select. See README "PATCH 010" for the full writeup.
+  staffMembers: [],
   student: null,         // roster entry
   // PATCH 006: who the student was physically with immediately before
   // this PACE visit — NOT the roster's homeroom `student.teacher` (that's
@@ -174,13 +181,18 @@ const STATE = {
   timeOut: "",  // PATCH 001: collected on the Visit Info screen, before save
   date: "",
   submissionId: null,
+  workflowMode: null,
+  completionTarget: null,
+  editingVisitId: null,
+  editingOriginalDate: "",
+  editingRoom: "",
   saving: false,
   exitTarget: null,      // the open-visit row being closed
   duplicateTarget: null  // the open-visit row that blocked a new entry
 };
 
 // Clears everything specific to ONE visit-in-progress. Deliberately does
-// NOT touch STATE.staffMember (sticky across a room session — see STATE
+// NOT touch STATE.staffMembers (sticky across a room session — see STATE
 // declaration above) or STATE.room.
 function resetTrip() {
   STATE.student = null;
@@ -193,6 +205,31 @@ function resetTrip() {
   STATE.timeOut = "";
   STATE.date = "";
   STATE.submissionId = null;
+  STATE.workflowMode = null;
+  STATE.completionTarget = null;
+  STATE.editingVisitId = null;
+  STATE.editingOriginalDate = "";
+  STATE.editingRoom = "";
+  STATE.exitTarget = null;
+  STATE.duplicateTarget = null;
+}
+
+function isEditingVisit() {
+  return Boolean(STATE.editingVisitId);
+}
+
+function isLiveStart() {
+  return STATE.workflowMode === PACE_VISIT_WORKFLOW.MODES.LIVE_START;
+}
+
+function isCompletingVisit() {
+  return STATE.workflowMode === PACE_VISIT_WORKFLOW.MODES.COMPLETING;
+}
+
+function beginVisitWorkflow(mode) {
+  resetTrip();
+  STATE.workflowMode = mode;
+  openSpecialistScreen({ preserveTrip: true });
 }
 
 // "Remember last room" uses a demo-specific key in demo mode (spec: keep
@@ -283,10 +320,10 @@ document.querySelectorAll(".room-card").forEach(btn => {
 async function enterRoom(roomId, direction) {
   STATE.room = roomId;
   // PATCH 004: a (re-)entered room is a fresh session — re-confirm the
-  // specialist rather than silently carrying one over from a previous
+  // specialist(s) rather than silently carrying one over from a previous
   // room or app launch. resetTrip() also clears any stale student/
   // came-from-teacher left over from an incomplete attempt.
-  STATE.staffMember = null;
+  STATE.staffMembers = [];
   resetTrip();
   localStorage.setItem(roomStorageKey(), roomId);
   const room = CONFIG.ROOMS.find(r => r.id === roomId);
@@ -314,7 +351,7 @@ async function refreshRoomVisits() {
   const listEl = document.getElementById("currentlyInPace");
   listEl.innerHTML = `<p class="empty-hint">Loading…</p>`;
   try {
-    STATE.paceVisits = await PACE_DATA.getVisits();
+    STATE.paceVisits = await PACE_DATA.getVisits({ date: todayISODate() });
   } catch (err) {
     console.error("Failed to load PACE visits:", err);
     listEl.innerHTML = `<p class="empty-hint">Unable to load current activity.</p>`;
@@ -324,9 +361,7 @@ async function refreshRoomVisits() {
 }
 
 function openVisitsForRoom(roomId) {
-  return STATE.paceVisits
-    .filter(v => v["PACE Room"] === roomId && !String(v["Time Out"] || "").trim())
-    .sort((a, b) => (a["Time In"] || "").localeCompare(b["Time In"] || ""));
+  return PACE_VISIT_WORKFLOW.openForRoom(STATE.paceVisits, roomId);
 }
 
 function renderCurrentlyInPace() {
@@ -341,8 +376,10 @@ function renderCurrentlyInPace() {
       <div class="current-card-info">
         <span class="current-card-name">${escHtml(v.Student || "")}${v.demo ? ' <span class="badge-simulated">SIMULATED</span>' : ""}</span>
         <span class="current-card-meta">In: ${escHtml(fmt12h(v["Time In"]))} · ${elapsedMinutesSince(dateOnly(v.Date), v["Time In"])} min</span>
+        ${v.Reason ? `<span class="current-card-meta">${escHtml(v.Reason)}</span>` : ""}
+        ${RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]) ? `<span class="current-card-meta">${escHtml(RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]))}</span>` : ""}
       </div>
-      <button class="current-card-exit" data-item-id="${escHtml(v.id)}">EXIT →</button>
+      <button class="current-card-exit" data-item-id="${escHtml(v.id)}">MARK COMPLETE</button>
     </div>`).join("");
 
   listEl.querySelectorAll(".current-card-exit").forEach(btn => {
@@ -356,7 +393,15 @@ function renderCurrentlyInPace() {
 // Keep elapsed-minute labels fresh without a full reload.
 setInterval(() => { if (currentScreenName === "room") renderCurrentlyInPace(); }, 30000);
 
-document.getElementById("newStudentBtn").addEventListener("click", () => openSpecialistScreen());
+document.getElementById("startLiveVisitBtn").addEventListener("click", async () => {
+  // Refresh first so duplicate-open protection includes visits started from
+  // another session since this room screen was opened.
+  await refreshRoomVisits();
+  beginVisitWorkflow(PACE_VISIT_WORKFLOW.MODES.LIVE_START);
+});
+document.getElementById("logCompletedVisitBtn").addEventListener("click", () => {
+  beginVisitWorkflow(PACE_VISIT_WORKFLOW.MODES.COMPLETED_ENTRY);
+});
 
 /* ── BEHAVIOR SPECIALIST (PATCH 004; PATCH 005: dynamic from IEP_Users2) ── */
 
@@ -365,8 +410,9 @@ document.getElementById("newStudentBtn").addEventListener("click", () => openSpe
 // same caching pattern as cachedStudents below.
 let cachedSpecialists = [];
 
-async function openSpecialistScreen() {
-  resetTrip(); // fresh attempt — clear any stale teacher/student, but staffMember stays sticky
+async function openSpecialistScreen({ preserveTrip = false } = {}) {
+  if (!preserveTrip) resetTrip(); // new visit; edit mode preloads and preserves the existing row
+  document.querySelector('[data-screen="specialist"] .btn-back').dataset.nav = isEditingVisit() ? "recent" : "room";
   document.getElementById("specialistGrid").innerHTML = `<p class="empty-hint">Loading…</p>`;
   nav("specialist", "forward");
   try {
@@ -378,27 +424,50 @@ async function openSpecialistScreen() {
   renderSpecialistGrid();
 }
 
+// PATCH 010: multi-select. Tapping a card toggles it in/out of
+// STATE.staffMembers; nothing navigates forward until CONTINUE is tapped
+// (previously, tapping the one allowed specialist navigated immediately —
+// see git history for the prior single-select renderSpecialistGrid()/
+// selectSpecialist()). Any previously-selected name not present in the
+// freshly loaded live list (e.g. picked, then that person went inactive)
+// is still shown so a return visit to this screen doesn't silently drop it.
 function renderSpecialistGrid() {
   const grid = document.getElementById("specialistGrid");
-  if (cachedSpecialists.length === 0) {
+  const missing = STATE.staffMembers.filter(name => !cachedSpecialists.includes(name));
+  const specialists = [...missing, ...cachedSpecialists];
+  if (specialists.length === 0) {
     grid.innerHTML = `<p class="empty-hint">No Behavior Specialists found.</p>`;
-    return;
+  } else {
+    grid.innerHTML = specialists.map(name => `
+      <button class="student-card${STATE.staffMembers.includes(name) ? " selected" : ""}" data-specialist="${escHtml(name)}">${escHtml(name)}</button>
+    `).join("");
+    grid.querySelectorAll("[data-specialist]").forEach(btn => {
+      btn.addEventListener("click", () => toggleSpecialist(btn.dataset.specialist));
+    });
   }
-  grid.innerHTML = cachedSpecialists.map(name => `
-    <button class="student-card${STATE.staffMember === name ? " selected" : ""}" data-specialist="${escHtml(name)}">${escHtml(name)}</button>
-  `).join("");
-  grid.querySelectorAll("[data-specialist]").forEach(btn => {
-    btn.addEventListener("click", () => selectSpecialist(btn.dataset.specialist));
-  });
+  updateSpecialistContinueState();
 }
 
-function selectSpecialist(name) {
-  STATE.staffMember = name;
-  openStudentScreen();
+function updateSpecialistContinueState() {
+  const count = STATE.staffMembers.length;
+  document.getElementById("specialistSelectedCount").textContent =
+    count === 0 ? "" : `${count} selected`;
+  document.getElementById("specialistContinueBtn").disabled = count === 0;
 }
+
+function toggleSpecialist(name) {
+  const idx = STATE.staffMembers.indexOf(name);
+  if (idx === -1) STATE.staffMembers.push(name); else STATE.staffMembers.splice(idx, 1);
+  renderSpecialistGrid();
+}
+
+document.getElementById("specialistContinueBtn").addEventListener("click", () => {
+  if (STATE.staffMembers.length === 0) return; // defensive: button is disabled at zero already
+  openStudentScreen();
+});
 
 document.getElementById("changeStaffBtn").addEventListener("click", () => {
-  STATE.staffMember = null;
+  STATE.staffMembers = [];
   renderSpecialistGrid();
   nav("specialist", "back");
 });
@@ -430,7 +499,7 @@ function studentSearchCorpus(s) {
 }
 
 async function openStudentScreen() {
-  document.getElementById("specialistContextLine").textContent = STATE.staffMember || "";
+  document.getElementById("specialistContextLine").textContent = STATE.staffMembers.join(", ");
   document.getElementById("studentSearch").value = "";
   document.getElementById("studentGrid").innerHTML = `<p class="empty-hint">Loading students…</p>`;
   nav("student", "forward");
@@ -444,7 +513,7 @@ async function openStudentScreen() {
 }
 
 function studentCardHtml(s) {
-  return `<button class="student-card" data-student-id="${escHtml(s.id)}">${escHtml(s.name)}</button>`;
+  return `<button class="student-card${STATE.student?.id === s.id ? " selected" : ""}" data-student-id="${escHtml(s.id)}">${escHtml(s.name)}</button>`;
 }
 function wireStudentCards(grid) {
   grid.querySelectorAll(".student-card").forEach(btn => {
@@ -454,7 +523,7 @@ function wireStudentCards(grid) {
 
 function renderStudentGrid(filter = "") {
   const grid = document.getElementById("studentGrid");
-  document.getElementById("specialistContextLine").textContent = STATE.staffMember || "";
+  document.getElementById("specialistContextLine").textContent = STATE.staffMembers.join(", ");
   const q = normalizeSearchText(filter);
 
   // Blank search: a bounded set of alphabetical suggestions, never the
@@ -462,7 +531,10 @@ function renderStudentGrid(filter = "") {
   // roster" is the hard requirement here, so this stays capped regardless
   // of how large the real production roster grows.
   if (!q) {
-    const suggestions = cachedStudents.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STUDENT_SUGGESTION_LIMIT);
+    let suggestions = cachedStudents.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STUDENT_SUGGESTION_LIMIT);
+    if (isEditingVisit() && STATE.student) {
+      suggestions = [STATE.student, ...suggestions.filter(s => s.id !== STATE.student.id)].slice(0, STUDENT_SUGGESTION_LIMIT);
+    }
     grid.innerHTML = `<p class="empty-hint">Start typing a student's name…</p>` + suggestions.map(studentCardHtml).join("");
     wireStudentCards(grid);
     return;
@@ -483,16 +555,18 @@ function selectStudent(studentId) {
   const student = cachedStudents.find(s => s.id === studentId);
   if (!student) return;
 
-  // Duplicate protection (spec section 32) — check this room's cached open
-  // visits list for the same student before starting a new entry.
-  const openForRoom = openVisitsForRoom(STATE.room);
-  const existing = openForRoom.find(v => v.Student === student.name);
-  if (existing) {
-    STATE.duplicateTarget = existing;
-    document.getElementById("duplicateMsg").textContent =
-      `${student.name} entered PACE at ${fmt12h(existing["Time In"])}.`;
-    nav("duplicate", "forward");
-    return;
+  if (isLiveStart()) {
+    // Duplicate protection applies to a new visit, never to the completed
+    // row currently being edited.
+    const openForRoom = openVisitsForRoom(STATE.room);
+    const existing = openForRoom.find(v => v.Student === student.name);
+    if (existing) {
+      STATE.duplicateTarget = existing;
+      document.getElementById("duplicateMsg").textContent =
+        `${student.name} entered PACE at ${fmt12h(existing["Time In"])}.`;
+      nav("duplicate", "forward");
+      return;
+    }
   }
 
   // PATCH 001: completed-visit model — selecting a student no longer
@@ -506,9 +580,11 @@ function selectStudent(studentId) {
   // answer — that value belongs to this specific visit/student pairing,
   // not something that should ever silently carry over from whoever was
   // selected before.
-  STATE.cameFromTeacher = null;
+  if (!isEditingVisit()) STATE.cameFromTeacher = null;
   if (!STATE.date) STATE.date = todayISODate();
-  STATE.submissionId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `pace-${Date.now()}`;
+  if (!isEditingVisit()) {
+    STATE.submissionId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `pace-${Date.now()}`;
+  }
 
   openCameFromScreen();
 }
@@ -539,7 +615,11 @@ async function openCameFromScreen() {
 function renderCameFromGrid(filter = "") {
   const grid = document.getElementById("cameFromGrid");
   const q = normalizeSearchText(filter);
-  const teachers = q ? cachedCameFromTeachers.filter(t => normalizeSearchText(t).includes(q)) : cachedCameFromTeachers;
+  let teachers = q ? cachedCameFromTeachers.filter(t => normalizeSearchText(t).includes(q)) : cachedCameFromTeachers.slice();
+  if (STATE.cameFromTeacher && !cachedCameFromTeachers.includes(STATE.cameFromTeacher)) {
+    const currentMatches = !q || normalizeSearchText(STATE.cameFromTeacher).includes(q);
+    if (currentMatches) teachers.unshift(STATE.cameFromTeacher);
+  }
 
   const namedCards = teachers.length > 0
     ? teachers.map(t => `<button class="student-card${STATE.cameFromTeacher === t ? " selected" : ""}" data-came-from="${escHtml(t)}">${escHtml(t)}</button>`).join("")
@@ -562,8 +642,12 @@ document.getElementById("cameFromSearch").addEventListener("input", e => renderC
 
 function selectCameFromTeacher(name) {
   STATE.cameFromTeacher = name;
-  renderVisitInfo();
-  nav("visitinfo", "forward");
+  if (isLiveStart()) {
+    openReasonScreen("forward");
+  } else {
+    renderVisitInfo();
+    nav("visitinfo", "forward");
+  }
 }
 
 document.getElementById("cameFromOtherContinueBtn").addEventListener("click", () => {
@@ -582,15 +666,41 @@ document.getElementById("dupViewBtn").addEventListener("click", () => {
 
 /* ── VISIT INFO: date / time in / time out (PATCH 001) ────────────────── */
 
+function openReasonScreen(direction = "forward") {
+  document.querySelector('[data-screen="reason"] .btn-back').dataset.nav = isLiveStart() ? "cameFrom" : "visitinfo";
+  document.getElementById("reasonNextBtn").textContent = isLiveStart() ? "Next" : "Next";
+  renderChipGrid("reasonChips", CONFIG.REASON_OPTIONS, STATE.reasons, () => updateNextEnabled("reason"));
+  updateNextEnabled("reason");
+  nav("reason", direction);
+}
+
 // Populates the screen from STATE every time it's shown — forward from
 // Student or backward from Reason — so nothing is ever silently reset by
 // navigating. Re-validates on every input change so the error clears the
 // moment the values become valid again, without waiting for a Next tap.
 function renderVisitInfo() {
   document.getElementById("visitStudentName").textContent = STATE.student?.name || "";
-  document.getElementById("visitDateInput").value = STATE.date || todayISODate();
+  const dateInput = document.getElementById("visitDateInput");
+  dateInput.value = STATE.date || todayISODate();
+  dateInput.disabled = isEditingVisit();
+  dateInput.min = isEditingVisit() ? todayISODate() : "";
+  dateInput.max = isEditingVisit() ? todayISODate() : "";
+  document.getElementById("visitDateEditHint").classList.toggle("hidden", !isEditingVisit());
+  document.getElementById("visitEditCancelBtn").classList.toggle("hidden", !isEditingVisit());
+  document.getElementById("editIdentityHint").classList.toggle("hidden", !isEditingVisit());
+
+  const roomCard = document.getElementById("visitRoomCard");
+  const roomInput = document.getElementById("visitRoomInput");
+  roomCard.classList.toggle("hidden", !isEditingVisit());
+  roomInput.innerHTML = CONFIG.ROOMS.map(room =>
+    `<option value="${escHtml(room.id)}"${room.id === (STATE.editingRoom || STATE.room) ? " selected" : ""}>${escHtml(room.label)}</option>`
+  ).join("");
   document.getElementById("visitTimeInInput").value = STATE.timeIn || "";
   document.getElementById("visitTimeOutInput").value = STATE.timeOut || "";
+  document.getElementById("visitTimeOutCard").classList.toggle("hidden", isLiveStart());
+  document.getElementById("visitDurationHint").classList.toggle("hidden", isLiveStart());
+  document.querySelector('[data-screen="visitinfo"] .btn-back').dataset.nav = isLiveStart() ? "reason" : "cameFrom";
+  document.getElementById("visitInfoNextBtn").textContent = isLiveStart() ? "START PACE VISIT" : "Next";
   document.getElementById("visitTimeError").classList.add("hidden");
   updateVisitDurationHint();
 }
@@ -609,7 +719,9 @@ function validateVisitInfo() {
   const timeIn = document.getElementById("visitTimeInInput").value;
   const timeOut = document.getElementById("visitTimeOutInput").value;
   if (!date) return "Please enter the visit date.";
+  if (isEditingVisit() && date !== todayISODate()) return "Only today's visits can be edited.";
   if (!timeIn) return "Please enter Time In.";
+  if (isLiveStart()) return null;
   if (!timeOut) return "Please enter Time Out.";
   if (visitDurationMinutes(timeIn, timeOut) === null) return "Time Out must be later than Time In.";
   return null;
@@ -625,6 +737,21 @@ function validateVisitInfo() {
   });
 });
 
+document.getElementById("visitRoomInput").addEventListener("change", event => {
+  if (!isEditingVisit()) return;
+  const room = CONFIG.ROOMS.find(item => item.id === event.target.value);
+  if (!room) return;
+  STATE.editingRoom = room.id;
+});
+
+document.getElementById("visitEditCancelBtn").addEventListener("click", () => {
+  if (!isEditingVisit()) return;
+  resetTrip();
+  document.querySelector('[data-screen="specialist"] .btn-back').dataset.nav = "room";
+  nav("recent", "back");
+  loadRecentActivity();
+});
+
 document.getElementById("visitInfoNextBtn").addEventListener("click", () => {
   const error = validateVisitInfo();
   const errorEl = document.getElementById("visitTimeError");
@@ -636,9 +763,11 @@ document.getElementById("visitInfoNextBtn").addEventListener("click", () => {
     return;
   }
   errorEl.classList.add("hidden");
-  renderChipGrid("reasonChips", CONFIG.REASON_OPTIONS, STATE.reasons, () => updateNextEnabled("reason"));
-  updateNextEnabled("reason");
-  nav("reason", "forward");
+  if (isLiveStart()) {
+    saveLiveVisit();
+    return;
+  }
+  openReasonScreen("forward");
 });
 
 /* ── REASON / SUPPORT chips (shared renderer) ────────────────────────── */
@@ -663,7 +792,15 @@ function updateNextEnabled(which) {
 }
 
 document.getElementById("reasonNextBtn").addEventListener("click", () => {
+  if (isLiveStart()) {
+    if (!STATE.date) STATE.date = todayISODate();
+    if (!STATE.timeIn) STATE.timeIn = nowHHMM();
+    renderVisitInfo();
+    nav("visitinfo", "forward");
+    return;
+  }
   renderChipGrid("supportChips", CONFIG.SUPPORT_OPTIONS, STATE.supports, () => updateNextEnabled("support"));
+  document.querySelector('[data-screen="support"] .btn-back').dataset.nav = "reason";
   updateNextEnabled("support");
   nav("support", "forward");
 });
@@ -680,17 +817,32 @@ function setScm(value) {
   STATE.scmUsed = value;
   document.getElementById("scmYesBtn").classList.toggle("selected", value === true);
   document.getElementById("scmNoBtn").classList.toggle("selected", value === false);
-  setTimeout(() => nav("notes", "forward"), 140); // brief pause so the selection state is visible
+  setTimeout(() => {
+    renderNotesScreen();
+    nav("notes", "forward");
+  }, 140); // brief pause so the selection state is visible
 }
 document.getElementById("scmYesBtn").addEventListener("click", () => setScm(true));
 document.getElementById("scmNoBtn").addEventListener("click", () => setScm(false));
 
 /* ── NOTES ────────────────────────────────────────────────────────────── */
 
+function renderNotesScreen() {
+  const noteText = document.getElementById("noteText");
+  const addNoteBtn = document.getElementById("addNoteBtn");
+  noteText.value = STATE.notes || "";
+  const showEditor = isEditingVisit() || Boolean(STATE.notes);
+  noteText.classList.toggle("hidden", !showEditor);
+  addNoteBtn.classList.toggle("hidden", showEditor);
+}
+
 document.getElementById("addNoteBtn").addEventListener("click", (e) => {
   document.getElementById("noteText").classList.remove("hidden");
   document.getElementById("noteText").focus();
   e.target.classList.add("hidden");
+});
+document.getElementById("noteText").addEventListener("input", event => {
+  STATE.notes = event.target.value;
 });
 document.getElementById("notesNextBtn").addEventListener("click", () => {
   STATE.notes = document.getElementById("noteText").value.trim();
@@ -700,18 +852,70 @@ document.getElementById("notesNextBtn").addEventListener("click", () => {
 
 /* ── CONFIRM ──────────────────────────────────────────────────────────── */
 
+function buildVisitEntry({ open = false } = {}) {
+  return {
+    id: STATE.submissionId,
+    paceRoom: isEditingVisit() ? (STATE.editingRoom || STATE.room) : STATE.room,
+    staffMembers: [...STATE.staffMembers],
+    cameFromTeacher: STATE.cameFromTeacher,
+    studentName: STATE.student?.name || "",
+    date: STATE.date,
+    timeIn: STATE.timeIn,
+    timeOut: open ? "" : STATE.timeOut,
+    durationMinutes: open ? null : visitDurationMinutes(STATE.timeIn, STATE.timeOut),
+    behaviors: STATE.reasons,
+    interventions: open ? [] : STATE.supports,
+    scmUsed: open ? null : STATE.scmUsed,
+    notes: open ? "" : STATE.notes,
+    submittedByName: AUTH.staffName || AUTH.displayName,
+    timestamp: new Date().toISOString()
+  };
+}
+
+async function saveLiveVisit() {
+  if (STATE.saving || !isLiveStart()) return;
+  if (!STATE.student || STATE.staffMembers.length === 0 || !STATE.cameFromTeacher || STATE.reasons.length === 0 || !STATE.date || !STATE.timeIn) {
+    showToast("Please complete the live visit details.", "error");
+    return;
+  }
+  STATE.saving = true;
+  const btn = document.getElementById("visitInfoNextBtn");
+  btn.disabled = true;
+  btn.textContent = "Starting…";
+  try {
+    await PACE_DATA.createVisit(buildVisitEntry({ open: true }));
+    await refreshRoomVisits();
+    const studentName = STATE.student.name;
+    resetTrip();
+    btn.disabled = false;
+    btn.textContent = "START PACE VISIT";
+    STATE.saving = false;
+    nav("room", "back");
+    showToast(`${studentName} is now in PACE.`);
+  } catch (err) {
+    console.error("PACE live visit start failed:", err);
+    STATE.saving = false;
+    btn.disabled = false;
+    btn.textContent = "START PACE VISIT";
+    showToast("Visit could not be started. Try again.", "error");
+  }
+}
+
 // PATCH 001: read-only summary of the COMPLETE visit — editing now happens
 // by tapping Back to the relevant earlier screen (Visit Info for date/
 // times), not inline here. Keeps this screen to "verify in seconds, then
 // tap the one dominant Save button," per spec.
 function renderConfirmCard() {
-  const room = CONFIG.ROOMS.find(r => r.id === STATE.room);
-  const roomLine = room ? `${room.label} — ${room.hallway}` : (STATE.room || "");
+  document.getElementById("confirmTitle").textContent = isCompletingVisit() ? "Review Completion" : (isEditingVisit() ? "Review Changes" : "Ready To Log");
+  document.getElementById("saveEntryBtn").textContent = isCompletingVisit() ? "COMPLETE VISIT" : (isEditingVisit() ? "UPDATE PACE VISIT" : "SAVE PACE VISIT");
+  const visitRoomId = (isEditingVisit() || isCompletingVisit()) ? (STATE.editingRoom || STATE.room) : STATE.room;
+  const room = CONFIG.ROOMS.find(r => r.id === visitRoomId);
+  const roomLine = room ? `${room.label} — ${room.hallway}` : (visitRoomId || "");
   const dur = visitDurationMinutes(STATE.timeIn, STATE.timeOut);
   const card = document.getElementById("confirmCard");
   card.innerHTML = `
     <div class="confirm-row"><span class="confirm-row-label">Room</span><span class="confirm-row-value">${escHtml(roomLine)}</span></div>
-    <div class="confirm-row"><span class="confirm-row-label">Specialist</span><span class="confirm-row-value">${escHtml(STATE.staffMember || "")}</span></div>
+    <div class="confirm-row"><span class="confirm-row-label">${STATE.staffMembers.length > 1 ? "Behavior Specialists" : "Behavior Specialist"}</span><span class="confirm-row-value">${STATE.staffMembers.map(escHtml).join("<br>")}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Student</span><span class="confirm-row-value">${escHtml(STATE.student?.name || "")}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Teacher Came From</span><span class="confirm-row-value">${escHtml(STATE.cameFromTeacher || "")}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Visit</span><span class="confirm-row-value">${escHtml(fmtLongDate(STATE.date))}</span></div>
@@ -733,9 +937,18 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   // final submission") — the Visit Info screen already gated this once,
   // but re-verify STATE directly in case anything upstream changed it.
   if (!STATE.date || !STATE.timeIn || !STATE.timeOut || visitDurationMinutes(STATE.timeIn, STATE.timeOut) === null) {
-    renderVisitInfo();
-    nav("visitinfo", "back");
+    if (isCompletingVisit()) {
+      renderExitCard();
+      nav("exit", "back");
+    } else {
+      renderVisitInfo();
+      nav("visitinfo", "back");
+    }
     showToast("Please double-check the visit date and times.", "error");
+    return;
+  }
+  if (isEditingVisit() && (STATE.editingOriginalDate !== todayISODate() || STATE.date !== todayISODate())) {
+    showToast("Only today's visits can be edited.", "error");
     return;
   }
 
@@ -743,42 +956,37 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   const btn = document.getElementById("saveEntryBtn");
   btn.disabled = true; btn.textContent = "Saving…";
 
-  const entry = {
-    id: STATE.submissionId,
-    paceRoom: STATE.room,
-    // PATCH 004: staffMember stays app-level-only logical payload — see
-    // graph.js for why ("Staff Member" is a Person-type column this
-    // project has no write infrastructure for).
-    staffMember: STATE.staffMember,
-    // PATCH 006: replaces the old homeroom `teacher` — sent to SharePoint
-    // speculatively as "Teacher Came From" (see graph.js); harmless if
-    // that column doesn't exist yet.
-    cameFromTeacher: STATE.cameFromTeacher,
-    studentName: STATE.student.name,
-    date: STATE.date,
-    timeIn: STATE.timeIn,
-    timeOut: STATE.timeOut,
-    // PATCH 003: the live IEP_Pace_Visits list has a real "Duration"
-    // (Number) column — reusing the same visitDurationMinutes() the Visit
-    // Info/Confirm screens already display, rather than a second
-    // calculation. Already validated non-null just above.
-    durationMinutes: visitDurationMinutes(STATE.timeIn, STATE.timeOut),
-    behaviors: STATE.reasons,
-    interventions: STATE.supports,
-    scmUsed: STATE.scmUsed,
-    notes: STATE.notes,
-    submittedByName: AUTH.staffName || AUTH.displayName,
-    timestamp: new Date().toISOString()
-  };
+  const entry = buildVisitEntry();
 
   try {
-    await PACE_DATA.createVisit(entry);
-    btn.disabled = false; btn.textContent = "SAVE PACE VISIT";
+    const wasEditing = isEditingVisit();
+    const wasCompleting = isCompletingVisit();
+    if (wasCompleting) {
+      await PACE_DATA.completeVisit(STATE.completionTarget.id, entry);
+    } else if (wasEditing) {
+      await PACE_DATA.updateVisit(STATE.editingVisitId, entry);
+    } else {
+      await PACE_DATA.createVisit(entry);
+    }
+    btn.disabled = false;
+    btn.textContent = wasCompleting ? "COMPLETE VISIT" : (wasEditing ? "UPDATE PACE VISIT" : "SAVE PACE VISIT");
     STATE.saving = false;
+    document.getElementById("savedOverlayMessage").textContent = wasCompleting ? "PACE visit completed" : (wasEditing ? "PACE visit updated" : "PACE visit saved");
     document.getElementById("savedOverlay").classList.remove("hidden");
     await refreshRoomVisits();
-    setTimeout(() => {
+    setTimeout(async () => {
       document.getElementById("savedOverlay").classList.add("hidden");
+      if (wasCompleting) {
+        resetTrip();
+        nav("room", "back");
+        return;
+      }
+      if (wasEditing) {
+        resetTrip();
+        nav("recent", "back");
+        await loadRecentActivity();
+        return;
+      }
       // PATCH 004/006: return to Student Search, not all the way back to
       // Room — the same specialist (kept, resetTrip() doesn't touch it)
       // is likely about to log another visit right away. Room +
@@ -794,7 +1002,8 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   } catch (err) {
     console.error("PACE save failed:", err);
     STATE.saving = false;
-    btn.disabled = false; btn.textContent = "SAVE PACE VISIT";
+    btn.disabled = false;
+    btn.textContent = isCompletingVisit() ? "COMPLETE VISIT" : (isEditingVisit() ? "UPDATE PACE VISIT" : "SAVE PACE VISIT");
     document.getElementById("syncErrorDetail").textContent = err.message || "Please check the connection and try again.";
     document.getElementById("syncErrorOverlay").classList.remove("hidden");
   }
@@ -811,43 +1020,65 @@ document.getElementById("returnFromErrorBtn").addEventListener("click", () => {
 /* ── EXIT WORKFLOW ────────────────────────────────────────────────────── */
 
 function openExitScreen(item) {
+  if (!item?.id) return;
+  resetTrip();
+  STATE.workflowMode = PACE_VISIT_WORKFLOW.MODES.COMPLETING;
+  STATE.completionTarget = item;
   STATE.exitTarget = item;
+  STATE.student = { id: String(item.id), name: item.Student || "" };
+  // Read-only context for Mark Complete — the specialist(s) chosen at Start
+  // Visit are carried through as-is; this screen never lets staff reselect
+  // them (see README "PATCH 010" / brief "Preserve specialists through
+  // live visit"). Falls back to the current sticky STATE.staffMembers only
+  // if the row itself has nothing recorded (e.g. no column exists yet).
+  const storedSpecialists = RECENT_ACTIVITY.specialistNames(item["Behavior Specialist"] || item["Staff Member"]);
+  STATE.staffMembers = storedSpecialists.length > 0 ? storedSpecialists : [...STATE.staffMembers];
+  STATE.cameFromTeacher = item["Teacher Came From"] || "";
+  STATE.date = dateOnly(item.Date) || todayISODate();
+  STATE.timeIn = item["Time In"] || "";
+  STATE.timeOut = nowHHMM();
+  STATE.reasons = RECENT_ACTIVITY.editModel(item).reasons;
+  STATE.supports = RECENT_ACTIVITY.editModel(item).supports;
+  STATE.scmUsed = typeof item["SCM Used"] === "boolean" ? item["SCM Used"] : null;
+  STATE.notes = item.Notes || "";
+  STATE.editingRoom = item["PACE Room"] || STATE.room;
   renderExitCard();
   nav("exit", "forward");
 }
 
 function renderExitCard() {
-  const item = STATE.exitTarget;
-  const now = nowHHMM();
-  const dur = minutesBetween(item["Time In"] || "00:00", now);
+  const item = STATE.completionTarget;
+  if (!item) return;
+  const dur = visitDurationMinutes(STATE.timeIn, STATE.timeOut);
   document.getElementById("exitCard").innerHTML = `
     <div class="confirm-row"><span class="confirm-row-label">Student</span><span class="confirm-row-value">${escHtml(item.Student || "")}</span></div>
     <div class="confirm-row"><span class="confirm-row-label">Entered</span><span class="confirm-row-value">${escHtml(fmt12h(item["Time In"]))}</span></div>
-    <div class="confirm-row"><span class="confirm-row-label">Current time</span><span class="confirm-row-value">${escHtml(fmt12h(now))}</span></div>
-    <div class="confirm-row"><span class="confirm-row-label">Duration</span><span class="confirm-row-value">${dur} minute${dur !== 1 ? "s" : ""}</span></div>
+    <div class="confirm-row"><span class="confirm-row-label">Reason</span><span class="confirm-row-value">${escHtml(item.Reason || "")}</span></div>
+    ${STATE.staffMembers.length > 0 ? `<div class="confirm-row"><span class="confirm-row-label">${STATE.staffMembers.length > 1 ? "Behavior Specialists" : "Behavior Specialist"}</span><span class="confirm-row-value">${STATE.staffMembers.map(escHtml).join("<br>")}</span></div>` : ""}
+    <div class="confirm-row"><span class="confirm-row-label">Duration</span><span class="confirm-row-value">${dur === null ? "—" : `${dur} minute${dur !== 1 ? "s" : ""}`}</span></div>
   `;
+  document.getElementById("exitTimeOutInput").value = STATE.timeOut;
 }
 
-document.getElementById("confirmExitBtn").addEventListener("click", async () => {
-  const item = STATE.exitTarget;
+document.getElementById("exitTimeOutInput").addEventListener("input", event => {
+  STATE.timeOut = event.target.value;
+  document.getElementById("exitTimeError").classList.add("hidden");
+  renderExitCard();
+});
+
+document.getElementById("confirmExitBtn").addEventListener("click", () => {
+  const item = STATE.completionTarget;
   if (!item) return;
-  const btn = document.getElementById("confirmExitBtn");
-  btn.disabled = true; btn.textContent = "Closing…";
-  const timeOut = nowHHMM();
-  try {
-    await PACE_DATA.closeVisit(item.id, timeOut);
-    btn.disabled = false; btn.textContent = "CONFIRM EXIT";
-    showToast(`${item.Student} exited PACE.`);
-    STATE.exitTarget = null;
-    STATE.duplicateTarget = null;
-    await refreshRoomVisits();
-    nav("room", "back");
-  } catch (err) {
-    console.error("PACE exit sync failed:", err);
-    btn.disabled = false; btn.textContent = "CONFIRM EXIT";
-    document.getElementById("exitSyncErrorDetail").textContent = err.message || "Please check the connection and try again.";
-    document.getElementById("exitSyncErrorOverlay").classList.remove("hidden");
+  if (visitDurationMinutes(STATE.timeIn, STATE.timeOut) === null) {
+    const error = document.getElementById("exitTimeError");
+    error.textContent = "Time Out must be later than Time In.";
+    error.classList.remove("hidden");
+    return;
   }
+  renderChipGrid("supportChips", CONFIG.SUPPORT_OPTIONS, STATE.supports, () => updateNextEnabled("support"));
+  updateNextEnabled("support");
+  document.querySelector('[data-screen="support"] .btn-back').dataset.nav = "exit";
+  nav("support", "forward");
 });
 document.getElementById("exitTryAgainBtn").addEventListener("click", () => {
   document.getElementById("exitSyncErrorOverlay").classList.add("hidden");
@@ -857,40 +1088,129 @@ document.getElementById("exitReturnBtn").addEventListener("click", () => {
   document.getElementById("exitSyncErrorOverlay").classList.add("hidden");
 });
 
-/* ── RECENT (read-only, today's activity for this room) ──────────────── */
+/* ── RECENT (privacy-limited cards + same-day edit entry point) ──────── */
 
-document.querySelector('[data-nav="recent"]').addEventListener("click", async () => {
-  nav("recent", "forward");
+async function beginEditVisit(visit) {
+  if (!RECENT_ACTIVITY.isEditableToday(visit, todayISODate())) {
+    showToast("Only today's visits can be edited.", "error");
+    return;
+  }
+
+  const currentRoom = STATE.room;
+  const edit = RECENT_ACTIVITY.editModel(visit, {
+    fallbackRoom: currentRoom,
+    validRooms: CONFIG.ROOMS.map(room => room.id)
+  });
+  resetTrip();
+  STATE.workflowMode = PACE_VISIT_WORKFLOW.MODES.EDITING;
+  STATE.editingVisitId = edit.itemId;
+  STATE.editingOriginalDate = edit.date;
+  STATE.editingRoom = edit.room;
+  STATE.submissionId = edit.submissionId;
+  STATE.date = edit.date;
+  STATE.timeIn = edit.timeIn;
+  STATE.timeOut = edit.timeOut;
+  STATE.reasons = edit.reasons;
+  STATE.supports = edit.supports;
+  STATE.scmUsed = edit.scmUsed;
+  STATE.notes = edit.notes;
+  STATE.cameFromTeacher = edit.cameFromTeacher || null;
+  STATE.staffMembers = edit.specialists || [];
+  document.querySelector('[data-screen="specialist"] .btn-back').dataset.nav = "recent";
+
+  const [specialists, students, teachers] = await Promise.allSettled([
+    PACE_DATA.getSpecialists(),
+    PACE_DATA.getStudents(),
+    PACE_DATA.getTeachers()
+  ]);
+  cachedSpecialists = specialists.status === "fulfilled" ? specialists.value : [];
+  cachedStudents = students.status === "fulfilled" ? students.value : [];
+  cachedCameFromTeachers = teachers.status === "fulfilled" ? teachers.value : [];
+
+  const studentName = edit.student;
+  STATE.student = cachedStudents.find(student => student.name === studentName) || {
+    id: `edit-current-${STATE.editingVisitId}`,
+    name: studentName || "Student"
+  };
+  if (!cachedStudents.some(student => student.id === STATE.student.id)) cachedStudents.unshift(STATE.student);
+
+  renderSpecialistGrid();
+  renderStudentGrid();
+  renderCameFromGrid();
+  renderNotesScreen();
+  renderVisitInfo();
+  nav("visitinfo", "forward");
+}
+
+async function loadRecentActivity() {
   const listEl = document.getElementById("recentList");
+  const refreshBtn = document.getElementById("recentRefreshBtn");
+  const scopeEl = document.getElementById("recentScope");
   listEl.innerHTML = `<p class="empty-hint">Loading…</p>`;
+  scopeEl.textContent = "Today";
+  refreshBtn.disabled = true;
   try {
-    STATE.paceVisits = await PACE_DATA.getVisits();
-  } catch (err) {
-    listEl.innerHTML = `<p class="empty-hint">Unable to load recent activity.</p>`;
-    return;
-  }
-  const today = todayISODate();
-  const entries = STATE.paceVisits
-    .filter(v => v["PACE Room"] === STATE.room && dateOnly(v.Date) === today)
-    .sort((a, b) => (b["Submitted At"] || "").localeCompare(a["Submitted At"] || ""))
-    .slice(0, 20);
+    const result = await PACE_DATA.getRecentVisits({
+      date: todayISODate(),
+      room: STATE.room,
+      limit: 10
+    });
+    STATE.paceVisits = result.visits;
 
-  if (entries.length === 0) {
-    listEl.innerHTML = `<p class="empty-hint">No PACE activity today yet.</p>`;
-    return;
+    const room = CONFIG.ROOMS.find(item => item.id === STATE.room);
+    scopeEl.textContent = result.roomScoped && room
+      ? `Today · ${room.label}`
+      : "Today · All PACE rooms";
+
+    if (result.visits.length === 0) {
+      listEl.innerHTML = `<p class="empty-hint">No PACE activity today yet.</p>`;
+      return;
+    }
+
+    listEl.innerHTML = result.visits.map((visit, index) => {
+      const card = RECENT_ACTIVITY.cardModel(visit, { roomScoped: result.roomScoped });
+      const cardRoom = CONFIG.ROOMS.find(room => room.id === card.room)?.label || card.room;
+      const timeAndDuration = [
+        fmt12h(card.displayTime),
+        card.duration === null ? "Duration unavailable" : `${card.duration} min`
+      ].join(" · ");
+      return `<article class="recent-card">
+        <h3 class="recent-card-name">${escHtml(card.student)}</h3>
+        <p class="recent-card-time">${escHtml(timeAndDuration)}</p>
+        ${card.reason ? `<p class="recent-card-reason">${escHtml(card.reason)}</p>` : ""}
+        ${card.specialist ? `<p class="recent-card-specialist">${escHtml(card.specialist)}</p>` : ""}
+        ${cardRoom ? `<p class="recent-card-room">${escHtml(cardRoom)}</p>` : ""}
+        <button class="recent-edit-btn" type="button" data-recent-edit="${index}">Edit today's visit</button>
+      </article>`;
+    }).join("");
+    listEl.querySelectorAll("[data-recent-edit]").forEach(button => {
+      button.addEventListener("click", async () => {
+        const visit = result.visits[Number(button.dataset.recentEdit)];
+        if (!visit) return;
+        button.disabled = true;
+        button.textContent = "Opening…";
+        await beginEditVisit(visit);
+        if (currentScreenName === "recent") {
+          button.disabled = false;
+          button.textContent = "Edit today's visit";
+        }
+      });
+    });
+  } catch (err) {
+    console.error("Failed to load recent activity:", err);
+    scopeEl.textContent = "Today";
+    listEl.innerHTML = `<p class="empty-hint recent-error">Recent activity could not be loaded. Try again.</p>`;
+  } finally {
+    refreshBtn.disabled = false;
   }
-  listEl.innerHTML = entries.map(v => {
-    const timeOut = String(v["Time Out"] || "").trim();
-    const dur = timeOut ? `${minutesBetween(v["Time In"], timeOut)} min` : "open";
-    const subParts = [`${fmt12h(v["Time In"])} – ${timeOut ? fmt12h(timeOut) : "—"}`];
-    if (v.Reason) subParts.push(v.Reason); // PATCH 003: live column is "Reason", not "Behavior"
-    if (v["SCM Used"]) subParts.push("SCM");
-    return `<div class="recent-row">
-      <div class="recent-row-top"><span>${escHtml(v.Student || "")}${v.demo ? ' <span class="badge-simulated">SIMULATED</span>' : ""}</span><span>${dur}</span></div>
-      <div class="recent-row-sub">${escHtml(subParts.join(" · "))}</div>
-    </div>`;
-  }).join("");
+}
+
+document.querySelector('[data-nav="recent"]').addEventListener("click", () => {
+  nav("recent", "forward");
+  loadRecentActivity();
 });
+
+document.getElementById("recentRefreshBtn").addEventListener("click", loadRecentActivity);
 
 /* ── DEMO: reset control (spec §11 — visible only in demo mode) ──────── */
 
@@ -901,7 +1221,7 @@ document.getElementById("resetDemoBtn")?.addEventListener("click", () => {
   DemoStorage.reset();
   showToast("Demo data cleared.");
   refreshRoomVisits();
-  if (currentScreenName === "recent") document.querySelector('[data-nav="recent"]').click();
+  if (currentScreenName === "recent") loadRecentActivity();
 });
 
 /* ── TEMPORARY PATCH 003 DIAGNOSTIC (production-only, read-only) ─────────

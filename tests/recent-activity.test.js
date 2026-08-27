@@ -16,6 +16,29 @@ const appSource = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
 const htmlSource = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 const cssSource = fs.readFileSync(path.join(ROOT, "styles.css"), "utf8");
 
+// ROOM-FIELD-NAME PATCH: see the identical block in live-visit.test.js for
+// why this duplicates config.js's room helpers instead of loading the
+// real file.
+const PACE_ROOM_TEST_CONFIG = {
+  ROOMS: [
+    { id: "pace-room-1", label: "PACE Room 1", hallway: "Yellow Hall", color: "yellow" },
+    { id: "pace-room-2", label: "PACE Room 2", hallway: "Green Hall", color: "green" }
+  ]
+};
+const PACE_ROOM_HELPERS_SRC = `
+  function paceRoomLabelForId(id) {
+    const room = CONFIG.ROOMS.find(r => r.id === id);
+    return room ? room.label : (id || "");
+  }
+  function paceRoomIdForLabel(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    const room = CONFIG.ROOMS.find(r => r.label === raw || r.id === raw);
+    return room ? room.id : raw;
+  }
+  const PACE_ROOM_FIELD_CANDIDATES = ["Room", "PACE Room", "Pace Room"];
+`;
+
 // Existing screen guidance/states stay intact, and Refresh is a real
 // touch control rather than polling. The render block contains none of the
 // prohibited visit fields.
@@ -176,9 +199,10 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
     crypto: { randomUUID: () => "demo-visit-1" },
     GRAPH: new Proxy({}, { get: () => () => { microsoftCalls += 1; throw new Error("Microsoft request attempted"); } }),
     ROSTER: { loaded: false },
-    CONFIG: { BEHAVIOR_SPECIALISTS: [] }
+    CONFIG: { BEHAVIOR_SPECIALISTS: [], ...PACE_ROOM_TEST_CONFIG }
   });
 
+  vm.runInContext(PACE_ROOM_HELPERS_SRC, context, { filename: "pace-room-helpers" });
   for (const file of ["recent-activity.js", "demo-data.js", "pace-data.js"]) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });
   }
@@ -224,6 +248,13 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
   assert.deepEqual(JSON.parse(JSON.stringify(updated.visits[0])), {
     id: "demo-visit-1",
     demo: true,
+    // ROOM-FIELD-NAME PATCH: "Room" (not "PACE Room") is DemoStorage's own
+    // stored key now, matching the confirmed live display name, and it
+    // holds the label — see demo-data.js. getRecentVisits() -> getVisits()
+    // -> normalizeRoomOnRead() then ADDS "PACE Room" back on as the
+    // normalized internal slug every other consumer in this app expects;
+    // both keys legitimately coexist on the object this test reads.
+    "Room": "PACE Room 2",
     "PACE Room": "pace-room-2",
     Student: "Jordan M.",
     Date: TODAY,
@@ -253,10 +284,11 @@ async function verifyProductionReadIsDateBounded() {
   const context = vm.createContext({
     console,
     APP_MODE: "production",
-    CONFIG: { SITE: "example.sharepoint.test:/sites/PACE", LISTS: { paceVisits: "IEP_Pace_Visits" } },
+    CONFIG: { SITE: "example.sharepoint.test:/sites/PACE", LISTS: { paceVisits: "IEP_Pace_Visits" }, ...PACE_ROOM_TEST_CONFIG },
     AUTH: { acquireGraphToken: async () => "unused" },
     fetch: async () => { throw new Error("Unexpected network request"); }
   });
+  vm.runInContext(PACE_ROOM_HELPERS_SRC, context, { filename: "pace-room-helpers" });
   vm.runInContext(fs.readFileSync(path.join(ROOT, "graph.js"), "utf8"), context, { filename: "graph.js" });
   vm.runInContext("this.testGraph = GRAPH", context);
 
@@ -313,7 +345,14 @@ async function verifyProductionReadIsDateBounded() {
     list: "IEP_Pace_Visits",
     id: "42",
     fields: {
-      "PACE Room": "pace-room-2",
+      // ROOM-FIELD-NAME PATCH: label (not slug) under all three tolerated
+      // aliases — see graph.js's updatePaceVisit(). mapFields() itself
+      // (which would drop whichever alias isn't a real column) is stubbed
+      // out here by the updateMappedListItem override above, so this
+      // asserts graph.js's own payload-builder output, before mapping.
+      "Room": "PACE Room 2",
+      "PACE Room": "PACE Room 2",
+      "Pace Room": "PACE Room 2",
       Student: "Jordan M.",
       Date: TODAY,
       "Time In": "10:00",

@@ -93,7 +93,13 @@ const DemoStorage = {
       // as production now writes — see config.js's paceRoomLabelForId() and
       // graph.js's savePaceVisit(). pace-data.js's getVisits() converts it
       // back to the internal slug on read, for both modes identically.
-      "PACE Room":          paceRoomLabelForId(entry.paceRoom),
+      //
+      // ROOM-FIELD-NAME PATCH: key renamed from "PACE Room" to "Room" to
+      // mirror the confirmed live SharePoint display name exactly (see
+      // config.js's PACE_ROOM_FIELD_CANDIDATES) — demo mode is meant to
+      // model production's actual column names, not a guess that turned
+      // out wrong, so a bug in the read side would show up here too.
+      "Room":               paceRoomLabelForId(entry.paceRoom),
       "Student":            entry.studentName || "",
       "Date":               entry.date || "",
       "Time In":            entry.timeIn || "",

@@ -11,6 +11,33 @@ const css = fs.readFileSync(path.join(ROOT, "styles.css"), "utf8");
 const now = new Date();
 const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+// ROOM-FIELD-NAME PATCH: demo-data.js/pace-data.js now call config.js's
+// paceRoomLabelForId()/paceRoomIdForLabel() helpers, plus reference
+// CONFIG.ROOMS and PACE_ROOM_FIELD_CANDIDATES. These tests deliberately
+// hand-roll a minimal global surface instead of loading real config.js
+// (which needs `window.location` and pulls in unrelated production
+// config) — this is that same minimal surface, kept an exact copy of
+// config.js's real implementation.
+const PACE_ROOM_TEST_CONFIG = {
+  ROOMS: [
+    { id: "pace-room-1", label: "PACE Room 1", hallway: "Yellow Hall", color: "yellow" },
+    { id: "pace-room-2", label: "PACE Room 2", hallway: "Green Hall", color: "green" }
+  ]
+};
+const PACE_ROOM_HELPERS_SRC = `
+  function paceRoomLabelForId(id) {
+    const room = CONFIG.ROOMS.find(r => r.id === id);
+    return room ? room.label : (id || "");
+  }
+  function paceRoomIdForLabel(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    const room = CONFIG.ROOMS.find(r => r.label === raw || r.id === raw);
+    return room ? room.id : raw;
+  }
+  const PACE_ROOM_FIELD_CANDIDATES = ["Room", "PACE Room", "Pace Room"];
+`;
+
 assert.match(html, /id="startLiveVisitBtn">START VISIT/);
 assert.match(html, /Student is entering PACE now/);
 assert.match(html, /id="logCompletedVisitBtn">LOG COMPLETED VISIT/);
@@ -55,8 +82,9 @@ async function verifyDemoSameRowLifecycle() {
     crypto: { randomUUID: () => "generated-id" },
     GRAPH: new Proxy({}, { get: () => () => { microsoftCalls += 1; throw new Error("Microsoft request attempted"); } }),
     ROSTER: { loaded: false },
-    CONFIG: { BEHAVIOR_SPECIALISTS: [], STORAGE_KEYS: { VISIT_CONTEXT: "unused" } }
+    CONFIG: { BEHAVIOR_SPECIALISTS: [], STORAGE_KEYS: { VISIT_CONTEXT: "unused" }, ...PACE_ROOM_TEST_CONFIG }
   });
+  vm.runInContext(PACE_ROOM_HELPERS_SRC, context, { filename: "pace-room-helpers" });
   for (const file of ["recent-activity.js", "demo-data.js", "pace-data.js"]) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });
   }
@@ -162,7 +190,7 @@ async function verifyProductionContextEnrichment() {
   const context = vm.createContext({
     console,
     APP_MODE: "production",
-    CONFIG: { BEHAVIOR_SPECIALISTS: [], STORAGE_KEYS: { VISIT_CONTEXT: "visit-context" } },
+    CONFIG: { BEHAVIOR_SPECIALISTS: [], STORAGE_KEYS: { VISIT_CONTEXT: "visit-context" }, ...PACE_ROOM_TEST_CONFIG },
     localStorage: {
       getItem: key => storage.get(key) || null,
       setItem: (key, value) => storage.set(key, value)
@@ -171,6 +199,7 @@ async function verifyProductionContextEnrichment() {
     ROSTER: { loaded: true },
     RECENT_ACTIVITY: { select: visits => ({ visits }) }
   });
+  vm.runInContext(PACE_ROOM_HELPERS_SRC, context, { filename: "pace-room-helpers" });
   vm.runInContext(fs.readFileSync(path.join(ROOT, "pace-data.js"), "utf8"), context, { filename: "pace-data.js" });
   vm.runInContext("this.provider = PACE_DATA", context);
   await context.provider.createVisit({

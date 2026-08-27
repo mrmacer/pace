@@ -18,6 +18,29 @@ const app = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
 const now = new Date();
 const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+// ROOM-FIELD-NAME PATCH: see the identical block in live-visit.test.js for
+// why this duplicates config.js's room helpers instead of loading the
+// real file.
+const PACE_ROOM_TEST_CONFIG = {
+  ROOMS: [
+    { id: "pace-room-1", label: "PACE Room 1", hallway: "Yellow Hall", color: "yellow" },
+    { id: "pace-room-2", label: "PACE Room 2", hallway: "Green Hall", color: "green" }
+  ]
+};
+const PACE_ROOM_HELPERS_SRC = `
+  function paceRoomLabelForId(id) {
+    const room = CONFIG.ROOMS.find(r => r.id === id);
+    return room ? room.label : (id || "");
+  }
+  function paceRoomIdForLabel(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    const room = CONFIG.ROOMS.find(r => r.label === raw || r.id === raw);
+    return room ? room.id : raw;
+  }
+  const PACE_ROOM_FIELD_CANDIDATES = ["Room", "PACE Room", "Pace Room"];
+`;
+
 /* ── Multi-select UX (structural) ─────────────────────────────────────── */
 
 // Tapping a card no longer navigates immediately (that was the entire
@@ -75,8 +98,10 @@ async function verifyLongNoteRoundTrip() {
       getItem: key => storage.get(key) || null,
       setItem: (key, value) => storage.set(key, value)
     },
-    crypto: { randomUUID: () => "note-test-1" }
+    crypto: { randomUUID: () => "note-test-1" },
+    CONFIG: { ...PACE_ROOM_TEST_CONFIG }
   });
+  vm.runInContext(PACE_ROOM_HELPERS_SRC, demoContext, { filename: "pace-room-helpers" });
   vm.runInContext(fs.readFileSync(path.join(ROOT, "demo-data.js"), "utf8"), demoContext, { filename: "demo-data.js" });
   vm.runInContext("this.demoStorage = DemoStorage", demoContext);
   const demoVisit = demoContext.demoStorage.createVisit({
@@ -99,10 +124,11 @@ async function verifyLongNoteRoundTrip() {
   const graphContext = vm.createContext({
     console,
     APP_MODE: "production",
-    CONFIG: { SITE: "example.sharepoint.test:/sites/PACE", LISTS: { paceVisits: "IEP_Pace_Visits" } },
+    CONFIG: { SITE: "example.sharepoint.test:/sites/PACE", LISTS: { paceVisits: "IEP_Pace_Visits" }, ...PACE_ROOM_TEST_CONFIG },
     AUTH: { acquireGraphToken: async () => "unused" },
     fetch: async () => { throw new Error("Unexpected network request"); }
   });
+  vm.runInContext(PACE_ROOM_HELPERS_SRC, graphContext, { filename: "pace-room-helpers" });
   vm.runInContext(fs.readFileSync(path.join(ROOT, "graph.js"), "utf8"), graphContext, { filename: "graph.js" });
   vm.runInContext("this.testGraph = GRAPH", graphContext);
   let mappedFields = null;

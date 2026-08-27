@@ -41,6 +41,24 @@ function rememberVisitContext(itemId, entry) {
   localStorage.setItem(CONFIG.STORAGE_KEYS.VISIT_CONTEXT, JSON.stringify(context));
 }
 
+// ROOM-FIELD-NAME PATCH: a raw visit object's room value can arrive under
+// any of config.js's PACE_ROOM_FIELD_CANDIDATES — GRAPH.getPaceVisitsByDisplayName()/
+// getPaceVisitsForDateByDisplayName() key each field by whatever the LIVE
+// schema actually calls it (confirmed "Room" today), while demo storage
+// and the local visit-context fallback below both use the app's own
+// historical "PACE Room" key. This tries each candidate in order and
+// returns the first one present — never a guess at a value, only at which
+// key holds the value already there. An older record with no room value
+// under any candidate correctly returns "" (see README "Older records" —
+// never inferred, never backfilled).
+function readPaceRoomValue(visit) {
+  for (const key of PACE_ROOM_FIELD_CANDIDATES) {
+    const value = visit?.[key];
+    if (value) return value;
+  }
+  return "";
+}
+
 function enrichVisitContext(visits) {
   if (APP_MODE === "demo") return visits;
   const context = loadVisitContext();
@@ -48,7 +66,7 @@ function enrichVisitContext(visits) {
     const saved = context[String(visit.id)] || {};
     return {
       ...visit,
-      "PACE Room": visit["PACE Room"] || saved.room || "",
+      "PACE Room": readPaceRoomValue(visit) || saved.room || "",
       "Behavior Specialist": visit["Behavior Specialist"] || visit["Staff Member"] || saved.specialist || "",
       "Teacher Came From": visit["Teacher Came From"] || saved.teacher || ""
     };
@@ -63,14 +81,17 @@ function enrichVisitContext(visits) {
 // visit["PACE Room"] against a raw slug (STATE.room/STATE.editingRoom).
 // Normalizing here, in the one function both getVisits() callers share,
 // means none of those call sites need to know the live SharePoint value is
-// actually a label. paceRoomIdForLabel() is a no-op on an already-slug
-// value (e.g. the local visit-context fallback in enrichVisitContext(), or
-// a legacy row saved before this patch), so this is safe to apply
-// unconditionally to both modes.
+// actually a label under a differently-named column. paceRoomIdForLabel()
+// is a no-op on an already-slug value (e.g. the local visit-context
+// fallback in enrichVisitContext(), or a legacy row saved before this
+// patch), so this is safe to apply unconditionally to both modes.
+// readPaceRoomValue() (not a hardcoded "PACE Room" read) covers both the
+// production case (enrichVisitContext() already normalized to "PACE Room")
+// and the demo case (DemoStorage's own rows carry "Room" directly).
 function normalizeRoomOnRead(visits) {
   return visits.map(visit => ({
     ...visit,
-    "PACE Room": paceRoomIdForLabel(visit["PACE Room"])
+    "PACE Room": paceRoomIdForLabel(readPaceRoomValue(visit))
   }));
 }
 
@@ -133,7 +154,8 @@ const PACE_DATA = {
       return DemoStorage.updateVisit(id, {
         // CURRENT-PATCH: label, matching createVisit() and production's
         // updatePaceVisit() — see config.js's paceRoomLabelForId().
-        "PACE Room":         paceRoomLabelForId(entry.paceRoom),
+        // ROOM-FIELD-NAME PATCH: "Room", matching createVisit()'s renamed key.
+        "Room":              paceRoomLabelForId(entry.paceRoom),
         "Student":           entry.studentName || "",
         "Date":              entry.date || "",
         "Time In":           entry.timeIn || "",

@@ -189,38 +189,43 @@ local verification; code changes are not deployed automatically.
 | Staff identity | `Staff Member` | **personOrGroup** | **not written — see below** |
 | Behavior Specialist(s) | `Behavior Specialist` | *(unconfirmed — sent speculatively)* | **PATCH 010: now one or more, comma-joined — see below** |
 | Entry ID (dedupe key) | *(none)* | — | **not a real column — see below** |
-| **PACE Room** | *(none)* | — | **still not a real column as of the last diagnostic run — see below, most significant gap. CURRENT-PATCH sends `"PACE Room 1"`/`"PACE Room 2"` (label, not slug) speculatively — starts persisting with zero code change the moment the column exists** |
-| SCM Used | *(none)* | — | **still not a real column as of the last diagnostic run — see below. CURRENT-PATCH: the app now requires an explicit Yes/No answer before ANY completed visit (Mark Complete or Log Completed Visit) can save — enforced by the SCM screen's own navigation plus a defensive re-check in `app.js`'s save handler — so the value sent is always a real `true`/`false`, never blank, the moment this column exists** |
+| **Room** | `Room` | text (Yes/No confirmed separately below for SCM) | **ROOM-FIELD-NAME PATCH: CONFIRMED EXISTING — manually verified by the user, not yet re-confirmed by the in-app diagnostic.** The live display name is `Room`, not `PACE Room` (the name every prior patch, including the diagnostic's own concept list, assumed). The app now writes `"PACE Room 1"`/`"PACE Room 2"` (label, not slug) under all three of `Room`/`PACE Room`/`Pace Room` — `mapFields()` keeps only the one that's real. Run the diagnostic again to get this row's type/internal-name confirmed the same authoritative way as the rest of this table. |
+| SCM Used | *(unconfirmed exact name — user reports it as working)* | Yes/No | **ROOM-FIELD-NAME PATCH: CONFIRMED WORKING IN PRODUCTION** — the user reports SCM is already reaching SharePoint and appearing in the MAC Walkthrough admin report. This patch did not change SCM's write logic (still `entry.scmUsed == null ? undefined : entry.scmUsed === true`) or its required-before-completion validation (see the prior patch entry below) — only verified it wasn't regressed. Run the diagnostic to get the exact confirmed display/internal name and type into this table. |
 | Submitted At | *(none)* | — | not needed — SharePoint's own system `Created` timestamp already covers this |
 | Return Status | `Return Status` | choice | exists, intentionally unused — see below |
 
 ### Open gaps this app cannot close on its own
 
-- **`PACE Room` has no matching live column at all — still true as of
-  this patch.** This remains the most significant open gap: every
-  production visit this app has ever written has no way to say which room
-  it came from, **as far as this diagnostic could confirm** (see PATCH 003
-  disclaimer above the schema table — nothing in Patches 004–010 re-ran the
-  live column diagnostic). **CURRENT-PATCH** changes what's *sent* while
-  the gap remains unresolved: `"PACE Room"` now carries the label
-  (`"PACE Room 1"` / `"PACE Room 2"`, via `paceRoomLabelForId()`) instead of
-  the raw slug, written at visit **creation** time for both Start Visit and
-  Log Completed Visit — never deferred to Mark Complete, and Mark Complete's
-  own patch payload never re-sends `"PACE Room"`, so the originally-recorded
-  room is preserved automatically by SharePoint's partial-update semantics.
-  This is still harmless/speculative (silently dropped if unmapped) and
-  starts working with zero further code change the moment a matching column
-  exists — **this still needs a decision**: either an admin adds a
-  room-identifying column (see "Manual configuration required" below,
-  which already asks for this), or there's an existing mechanism this app
-  hasn't been told about. One direct, currently-live consequence: Recent
-  Activity cannot reliably enforce per-room scoping for real production
-  rows. PATCH 008 detects that all room values are blank and falls back to
-  today's visits across rooms instead of showing a false empty state;
-  adding the column restores true room scoping and makes room edits
-  persist. **Run the PATCH 003 diagnostic again after adding the column**
-  to get an authoritative, current confirmation — this README only reflects
-  what the diagnostic has actually seen.
+- **RESOLVED by the ROOM-FIELD-NAME PATCH — `PACE Room` was never missing,
+  it was misnamed.** Every prior patch (including this one's own
+  immediately-preceding version) assumed the room column would be called
+  `PACE Room`, because that's what Patch 003's diagnostic was told to look
+  for, run before this column existed at all. The user has since manually
+  confirmed the live column's actual display name is **`Room`**. The app
+  now writes the room label (`"PACE Room 1"` / `"PACE Room 2"`, via
+  `paceRoomLabelForId()`) under all three of `Room`, `PACE Room`, and
+  `Pace Room` in the same `mapFields()` call — whichever of the three is
+  the real column keeps the write, the other two are silently dropped
+  (harmless `console.warn`s) — so a future rename in either direction
+  doesn't silently break persistence again. Written at visit **creation**
+  time for both Start Visit and Log Completed Visit — never deferred to
+  Mark Complete — and Mark Complete's own patch payload never re-sends any
+  room-field alias, so the originally-recorded room is preserved
+  automatically by SharePoint's partial-update semantics. On the read
+  side, `pace-data.js`'s `readPaceRoomValue()` checks the same three
+  aliases in order (a real visit read back from Graph is keyed by
+  whatever `GRAPH.getListSchema()` says the live display name is —
+  `Room`, confirmed) before `normalizeRoomOnRead()` converts the label
+  back to the internal slug every other part of this app compares against.
+  **Still not diagnostic-confirmed** — the user's manual confirmation is
+  the only evidence so far; run the (now-updated) PATCH 003 diagnostic to
+  get this into the schema table above the same authoritative way as every
+  other row. Recent Activity's per-room scoping, "Currently in PACE," and
+  same-day editing all depend on this and were re-verified working after
+  the rename (see the "ROOM-FIELD-NAME PATCH" changelog entry below for
+  the verification list) — no changes were needed in any of those files,
+  since they all only ever read the already-normalized `"PACE Room"` key
+  `PACE_DATA.getVisits()` produces, never a raw SharePoint field name.
 - **`Staff Member` is a Person field (`personOrGroup`), not text.**
   Writing to it requires resolving the signed-in user to a SharePoint
   site-user id first (a separate Graph call this project has no
@@ -252,24 +257,27 @@ local verification; code changes are not deployed automatically.
   intentionally, per instruction not to invent a column or hack around a
   Person field. Demo mode still stores both (`"Staff Member"`, `"Teacher"`)
   for parity/completeness, same as the other not-yet-mappable fields above.
-- **No SCM-related column exists in the live list at all — still true as
-  of this patch.** Not `SCM Used`, not `SCM`, nothing found by the last
-  diagnostic run. The app's "Was SCM Required?" screen answer is not
-  persisted in production today. Still sent (`"SCM Used"`) for the same
-  forward-compatibility reason as above. **CURRENT-PATCH**: this is now a
-  *required* answer app-side regardless of whether the column exists — a
-  completed visit (Mark Complete or Log Completed Visit) cannot reach Save
-  without an explicit Yes/No SCM answer (the SCM screen only advances via
-  `setScm(true)`/`setScm(false)`, and `app.js`'s save handler independently
-  re-checks `STATE.scmUsed` is strictly `true`/`false` before saving,
-  redirecting back to the SCM screen otherwise). An **open** live-start
-  visit is the one exception — it may still save with SCM unanswered, since
-  staff often don't know yet — and `"SCM Used"` sends `undefined`/`null` in
-  that case rather than false, so once the column exists a blank cell will
-  never be misread as "No." Fixed the same day: `GRAPH.updatePaceVisit()`
-  and the demo equivalent used to coerce a null SCM to `false`
-  (`entry.scmUsed === true`); both now match the null-safe pattern already
-  used by create/complete.
+- **RESOLVED — SCM is confirmed reaching SharePoint in production.** Prior
+  patches (through the one immediately preceding this one) documented no
+  SCM-related column as existing at all. The user has since confirmed SCM
+  is already being written successfully and appearing in the MAC
+  Walkthrough admin report — the exact live display/internal name and
+  column type are still not diagnostic-confirmed (the schema table above
+  shows this as the user's manual report, not a diagnostic result), but
+  the write path itself is proven working and this patch made no changes
+  to it. Unchanged from the prior patch: this is a *required* answer
+  app-side regardless — a completed visit (Mark Complete or Log Completed
+  Visit) cannot reach Save without an explicit Yes/No SCM answer (the SCM
+  screen only advances via `setScm(true)`/`setScm(false)`, and `app.js`'s
+  save handler independently re-checks `STATE.scmUsed` is strictly
+  `true`/`false` before saving, redirecting back to the SCM screen
+  otherwise). An **open** live-start visit is the one exception — it may
+  still save with SCM unanswered, since staff often don't know yet — and
+  `"SCM Used"` sends `undefined`/`null` in that case rather than false, so
+  a blank cell is never misread as "No." `GRAPH.updatePaceVisit()` and the
+  demo equivalent's earlier null-to-`false` coercion bug remains fixed.
+  This patch only re-verified none of the above regressed — see the
+  "ROOM-FIELD-NAME PATCH" changelog entry below.
 - **`Entry ID` is not a real column.** The old SharePoint-side duplicate
   lookup (`findListItemByDisplayField(..., "Entry ID", ...)`) was
   therefore throwing on *every single save*, silently swallowed by a
@@ -446,15 +454,87 @@ the same-day-edit path — both now use the same null-safe pattern
 (`entry.scmUsed == null ? undefined/null : entry.scmUsed === true`) already
 used by create/complete, so an edited row can never gain a fabricated "No."
 
-**Still true regardless of any of the above:** neither `PACE Room` nor
-`SCM Used` was found on the live `IEP_Pace_Visits` list by the last
-diagnostic run (PATCH 003) — see the schema table and "Open gaps" above.
-Every change in this patch is speculative/forward-compatible exactly like
-the existing `Teacher Came From`/`Behavior Specialist` pattern: harmless if
-the columns don't exist, and starts actually persisting the moment an
-admin adds them (see "Manual configuration required," item 3, now flagged
-as a blocker for these two fields specifically). This patch does not add,
-rename, or modify any SharePoint column, list, or permission.
+**Superseded by the ROOM-FIELD-NAME PATCH immediately below:** this
+section originally said neither `PACE Room` nor `SCM Used` was found on
+the live list by the last diagnostic run (PATCH 003), and that every
+change here was purely speculative/forward-compatible. The user has since
+manually confirmed both are live — `SCM` under some name this app hasn't
+independently confirmed, and room identity under the display name `Room`,
+not `PACE Room`. The SCM-required validation and null-safety fixes
+described above are unaffected and still accurate; only the room *field
+name* assumption was wrong — see below for the fix. This patch did not
+add, rename, or modify any SharePoint column, list, or permission.
+
+### ROOM-FIELD-NAME PATCH — confirmed live column is `Room`, not `PACE Room`
+
+The user manually confirmed the live `IEP_Pace_Visits` schema now contains
+columns named `Room` and `SCM`, with SCM already reaching SharePoint and
+appearing in the MAC Walkthrough admin report. The room column's real
+display name is `Room` — every prior patch (including the one immediately
+above) assumed `PACE Room`, because that's what Patch 003's diagnostic was
+told to look for, run before this column existed.
+
+**Compatibility over a hard rename.** Rather than replace `"PACE Room"`
+with `"Room"` outright, the write side now sends the same room-label value
+under all three of `Room`, `PACE Room`, and `Pace Room` in one
+`mapFields()` call (`GRAPH.savePaceVisit()`/`updatePaceVisit()`,
+`demo-data.js`'s `createVisit()`) — `config.js`'s new
+`PACE_ROOM_FIELD_CANDIDATES` is the single source of truth for this list.
+`mapFields()` already silently drops any key that isn't a real column (a
+`console.warn`, nothing more — the same mechanism every speculative field
+in this app already relies on), so only the one real column (`Room`,
+today) actually receives the write; the other two cost nothing beyond
+harmless console noise. If the column is ever renamed again in either
+direction, persistence doesn't silently break a second time.
+
+**Read side.** `GRAPH.getPaceVisitsByDisplayName()`/
+`getPaceVisitsForDateByDisplayName()` already key every field by whatever
+the *live* schema calls it (via `getListSchema()`), so a real production
+row comes back keyed `Room`, not `PACE Room` — the app's own internal
+`"PACE Room"` key (used everywhere in `visit-workflow.js`,
+`recent-activity.js`, and `app.js`) would have silently stopped finding
+any value the moment the column was actually confirmed. New
+`pace-data.js` function `readPaceRoomValue()` checks the same three
+candidates, in the same order, and `enrichVisitContext()`/
+`normalizeRoomOnRead()` both now use it instead of a hardcoded
+`visit["PACE Room"]` read. Because every consumer of a visit object only
+ever reads the *already-normalized* `"PACE Room"` key these two functions
+produce, **zero changes were needed in `app.js`, `visit-workflow.js`, or
+`recent-activity.js`** — confirmed by inspection, not assumption, before
+implementing.
+
+**Demo parity.** `demo-data.js`'s `createVisit()` and `pace-data.js`'s
+demo `updateVisit()` branch both renamed their stored key from
+`"PACE Room"` to `"Room"`, matching the confirmed live name exactly — so
+demo mode exercises the same alias-resolution path production does,
+rather than continuing to hide the exact bug this patch fixes.
+
+**Diagnostic tool.** `diagnostic.js`'s `DIAGNOSTIC_CONCEPTS` now includes
+`"Room"` alongside the existing `"PACE Room"`/`"Pace Room"` entries, so a
+re-run reports all three by name (FOUND for whichever is real, NOT FOUND
+for the others) instead of only ever checking the name that turned out to
+be wrong. The diagnostic remains strictly read-only.
+
+**Verification (demo mode, in-browser, zero Graph calls):**
+- Room 1 Start Visit → stored `Room: "PACE Room 1"` ✓
+- Room 2 Start Visit → stored `Room: "PACE Room 2"` ✓
+- Room 1 Log Completed Visit → stored `Room: "PACE Room 1"` ✓
+- Room 2 Log Completed Visit → stored `Room: "PACE Room 2"` ✓
+- Start Visit in Room 1 → Mark Complete → still `Room: "PACE Room 1"` ✓
+- Start Visit in Room 2 → Mark Complete → still `Room: "PACE Room 2"` ✓
+- SCM Yes and SCM No both still save correctly (unchanged by this patch) ✓
+- An open visit created in Room 1, after a full page reload, still appears
+  under Room 1's "Currently in PACE" (proves the read-side alias
+  resolution round-trips correctly, not just the write) ✓
+- Recent Activity's per-room scoping unaffected — reads the same
+  already-normalized `"PACE Room"` key as before ✓
+- No new console errors; zero `graph.microsoft.com` requests throughout ✓
+
+**Older records.** A row saved before the `Room` column existed has no
+value under any of the three candidates — `readPaceRoomValue()` correctly
+returns `""` for it, exactly as before. Nothing infers, backfills, or
+modifies a historical record's room from Behavior Specialist, Teacher, or
+timestamp data; per instruction, older rows simply remain blank/unknown.
 
 ### Temporary diagnostic tool
 
@@ -475,21 +555,23 @@ production and no longer needed.
 2. Confirm the signed-in test account has an **Active** row in
    `IEP_Users2` and the roster list has students flagged **PACE Enabled**.
 
-3. **Blocker — needed before `PACE Room`/`SCM Used` persist at all:** add
-   a writable Single line of text column named `PACE Room`, a writable
-   Yes/No column named `SCM Used`, plus Single line of text columns named
-   `Behavior Specialist` and `Teacher Came From`, to `IEP_Pace_Visits`. The
-   app schema-maps these display names automatically — no code change
-   needed once they exist. **`PACE Room` expects the exact text
-   `PACE Room 1` or `PACE Room 2`** (matching `CONFIG.ROOMS[].label` — see
-   `config.js`), not a slug like `pace-room-1`. Until this column exists,
-   this iPad keeps only room/specialist/teacher context locally by
-   SharePoint item id (never student data), so its own newly started
-   visits stay room-scoped after refresh. Another iPad cannot infer the room
-   for an open row whose SharePoint record has no room value. Until the
-   `SCM Used` column exists, every visit's SCM answer is collected and
-   validated in the app (required before any completed visit can save) but
-   is not actually persisted to SharePoint.
+3. **Room and SCM: confirmed to already exist — no admin action needed for
+   these two.** `Room` (room identity — see "ROOM-FIELD-NAME PATCH" below;
+   the app writes to `Room`/`PACE Room`/`Pace Room` and only the real one
+   keeps the value) and SCM (exact display name still unconfirmed by this
+   app, but the user reports it working) are both confirmed live per the
+   user, not this app's own tooling. **Still recommended:** run the PATCH
+   003 diagnostic once, signed in to production, to get `Room` and SCM's
+   exact display/internal names and types into this README with the same
+   authority as every other confirmed row. **Still needed:** writable
+   Single line of text columns named `Behavior Specialist` and
+   `Teacher Came From` on `IEP_Pace_Visits` — the app schema-maps these
+   display names automatically, no code change needed once they exist.
+   Until then, this iPad keeps specialist/teacher context locally by
+   SharePoint item id (never student data); room context no longer needs
+   this local fallback now that `Room` is confirmed writable, though the
+   fallback mechanism itself hasn't been removed (harmless — see
+   `pace-data.js`'s `enrichVisitContext()`).
    **PATCH 010 note:** `Behavior Specialist` now receives a comma-joined
    list of one or more names — a couple of names comfortably fits Single
    line of text's 255-character cap, but if you expect a PACE room to

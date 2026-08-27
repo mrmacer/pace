@@ -148,3 +148,16 @@ function paceRoomIdForLabel(value) {
   // never discard data this app doesn't understand.
   return room ? room.id : raw;
 }
+
+// ROOM-FIELD-NAME PATCH: the user manually confirmed the live
+// IEP_Pace_Visits column for room identity is actually named "Room" —
+// not "PACE Room", the name the prior patch (and Patch 003's diagnostic,
+// run before this column existed) assumed. Every place this app reads a
+// room value off a raw visit object tries these display names in order;
+// "Room" is the one confirmed live today, "PACE Room"/"Pace Room" stay as
+// tolerated aliases so a future rename either direction doesn't silently
+// break persistence again. graph.js's/demo-data.js's write side sends all
+// three (mapFields()/DemoStorage drop whichever key isn't real — see
+// README "Known gaps" — so this costs nothing beyond a harmless
+// console.warn per unmatched alias).
+const PACE_ROOM_FIELD_CANDIDATES = ["Room", "PACE Room", "Pace Room"];

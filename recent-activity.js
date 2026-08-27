@@ -35,9 +35,15 @@ const RECENT_ACTIVITY = (() => {
   }
 
   // Room scoping is used only when today's data actually contains room
-  // values. The live production schema currently drops "PACE Room" on
-  // writes; treating blank room values as a mismatch caused the old false
-  // empty state. If room values exist, never mix another room into the list.
+  // values. Historically the live schema had no matching column at all
+  // (any "PACE Room" value came back blank), which is why this still
+  // falls back to an unscoped list rather than treating a blank room as a
+  // mismatch — see README "Known gaps." ROOM-FIELD-NAME PATCH: the column
+  // now exists (confirmed named "Room" — see pace-data.js's
+  // normalizeRoomOnRead()/readPaceRoomValue()), so `visit["PACE Room"]`
+  // here is already the normalized slug for every current row; this
+  // fallback now only matters for older rows saved before the column
+  // existed. If room values exist, never mix another room into the list.
   function select(visits, { date, room = "", limit = 10 } = {}) {
     const targetDate = dateOnly(date);
     const targetRoom = text(room);

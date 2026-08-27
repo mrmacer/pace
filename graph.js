@@ -333,16 +333,24 @@ const GRAPH = {
   // and written here at creation (the existing "Time Out" field
   // closePaceVisit already used for the old open→close flow). A row
   // created by the current workflow is never "open."
-  // CURRENT-PATCH: "PACE Room" now sends the human-readable label ("PACE
-  // Room 1"/"PACE Room 2" — see config.js's paceRoomLabelForId()), not the
-  // raw internal slug. Still speculative/harmless if the column doesn't
-  // exist yet (see README "Known gaps") but this is what actually lands in
-  // the column the moment it does. Written here at CREATE time (Start
-  // Visit or Log Completed Visit) — never deferred to completion.
+  // CURRENT-PATCH: sends the human-readable label ("PACE Room 1"/"PACE
+  // Room 2" — see config.js's paceRoomLabelForId()), not the raw internal
+  // slug. Written here at CREATE time (Start Visit or Log Completed
+  // Visit) — never deferred to completion.
+  //
+  // ROOM-FIELD-NAME PATCH: the confirmed live display name for this
+  // column is "Room" (see config.js's PACE_ROOM_FIELD_CANDIDATES) — sent
+  // under all three tolerated aliases with the identical value.
+  // mapFields() silently drops whichever keys don't match a real column
+  // (a console.warn, nothing more), so only the one real column actually
+  // receives this write; the other two are no-ops.
   async savePaceVisit(entry) {
+    const roomValue = paceRoomLabelForId(entry.paceRoom);
     return this.createMappedListItem("IEP_Pace_Visits", {
       "Entry ID":           entry.id,
-      "PACE Room":          paceRoomLabelForId(entry.paceRoom),
+      "Room":               roomValue,
+      "PACE Room":          roomValue,
+      "Pace Room":          roomValue,
       "Student":            entry.studentName  || "",
       "Date":               entry.date         || "",
       "Time In":            entry.timeIn       || "",
@@ -373,11 +381,15 @@ const GRAPH = {
   // are dropped by mapFields() exactly as they are on initial save.
   async updatePaceVisit(itemId, entry) {
     if (!itemId) throw new Error("A SharePoint visit item is required for editing.");
+    // CURRENT-PATCH: label, not slug — see savePaceVisit() above. Same-day
+    // edits can change the room via the Visit Info screen's room select,
+    // so (unlike completePaceVisit()) this full-field update does resend it.
+    // ROOM-FIELD-NAME PATCH: all three tolerated aliases — see savePaceVisit().
+    const roomValue = paceRoomLabelForId(entry.paceRoom);
     return this.updateMappedListItem("IEP_Pace_Visits", itemId, {
-      // CURRENT-PATCH: label, not slug — see savePaceVisit() above. Same-day
-      // edits can change the room via the Visit Info screen's room select,
-      // so (unlike completePaceVisit()) this full-field update does resend it.
-      "PACE Room":         paceRoomLabelForId(entry.paceRoom),
+      "Room":              roomValue,
+      "PACE Room":         roomValue,
+      "Pace Room":         roomValue,
       "Student":           entry.studentName || "",
       "Date":              entry.date || "",
       "Time In":           entry.timeIn || "",

@@ -14,8 +14,13 @@
    DIAGNOSTIC").
    ───────────────────────────────────────────────────────────────────────── */
 
+// ROOM-FIELD-NAME PATCH: "Room" added — the user manually confirmed this
+// is the live column's actual display name. "PACE Room"/"Pace Room" stay
+// in this list too so a re-run of this diagnostic keeps showing (rather
+// than silently hiding) whichever of the three names turns out NOT to be
+// live, exactly like the "SCM Used"/"SCM" pair already does below.
 const DIAGNOSTIC_CONCEPTS = [
-  "Student", "PACE Room", "Date", "Time In", "Time Out", "Duration",
+  "Student", "Room", "PACE Room", "Pace Room", "Date", "Time In", "Time Out", "Duration",
   "Staff Member", "Behavior Specialist", "Reason", "Behavior", "Interventions",
   "Support", "SCM Used", "SCM", "Notes", "Entry ID", "Submitted By", "Submitted At"
 ];

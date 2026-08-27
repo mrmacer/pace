@@ -73,14 +73,20 @@ const CONFIG = {
     VISIT_CONTEXT: "paceTracker_visitContext"
   },
 
-  // Room identifiers. IMPORTANT: these raw slugs (not display labels) are
-  // what MAC Walkthrough already writes into the "PACE Room" SharePoint
-  // column (see its app.js: fd.get("paceRoom") is stored as-is, e.g.
-  // "pace-room-1"). Keep using the same raw values so existing/future
-  // admin reports keep working across both apps.
-  // hallway/color identity is presentation only — never written to
-  // SharePoint (the "PACE Room" column only ever gets the raw `id` slug
-  // above, unchanged).
+  // Room identifiers. `id` (a raw slug) is what every internal comparison
+  // in this app uses — STATE.room, STATE.editingRoom, visit-workflow.js's
+  // openForRoom(), recent-activity.js's room filter/editModel(), and every
+  // room <select>/CSS hook. `label` is the human-readable string.
+  //
+  // CURRENT-PATCH: `label` (e.g. "PACE Room 1") is what actually gets
+  // written into the existing SharePoint "PACE Room" display column — NOT
+  // the raw slug. Conversion happens in exactly two places, both far from
+  // this array: graph.js's savePaceVisit()/updatePaceVisit() convert
+  // id -> label on the way out (paceRoomLabelForId(), below), and
+  // pace-data.js's getVisits() converts label -> id on the way back in
+  // (paceRoomIdForLabel()) so every internal comparison keeps working on
+  // slugs unchanged. demo-data.js mirrors the same id -> label conversion
+  // for parity. hallway/color remain presentation-only, never sent anywhere.
   ROOMS: [
     { id: "pace-room-1", label: "PACE Room 1", hallway: "Yellow Hall", color: "yellow" },
     { id: "pace-room-2", label: "PACE Room 2", hallway: "Green Hall",  color: "green"  }
@@ -123,3 +129,22 @@ const CONFIG = {
     "Kelly Marchetti", "Bruce Andruchek", "Nicole Williams", "Luke Prescott"
   ]
 };
+
+// CURRENT-PATCH: the room slug <-> label boundary conversion referenced in
+// the ROOMS comment above. Kept here (not pace-data.js) since both
+// graph.js and demo-data.js are plain <script> globals loaded before
+// pace-data.js, and this is pure config-driven lookup with no APP_MODE
+// branching of its own.
+function paceRoomLabelForId(id) {
+  const room = CONFIG.ROOMS.find(r => r.id === id);
+  return room ? room.label : (id || "");
+}
+function paceRoomIdForLabel(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const room = CONFIG.ROOMS.find(r => r.label === raw || r.id === raw);
+  // Unrecognized values (e.g. a legacy row, or a manual SharePoint edit)
+  // are passed through as-is rather than silently dropped — never guess,
+  // never discard data this app doesn't understand.
+  return room ? room.id : raw;
+}

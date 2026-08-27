@@ -89,7 +89,11 @@ const DemoStorage = {
     const visit = {
       id,
       demo: true,
-      "PACE Room":          entry.paceRoom || "",
+      // CURRENT-PATCH: stores the label ("PACE Room 1"/"PACE Room 2"), same
+      // as production now writes — see config.js's paceRoomLabelForId() and
+      // graph.js's savePaceVisit(). pace-data.js's getVisits() converts it
+      // back to the internal slug on read, for both modes identically.
+      "PACE Room":          paceRoomLabelForId(entry.paceRoom),
       "Student":            entry.studentName || "",
       "Date":               entry.date || "",
       "Time In":            entry.timeIn || "",

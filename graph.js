@@ -333,10 +333,16 @@ const GRAPH = {
   // and written here at creation (the existing "Time Out" field
   // closePaceVisit already used for the old open→close flow). A row
   // created by the current workflow is never "open."
+  // CURRENT-PATCH: "PACE Room" now sends the human-readable label ("PACE
+  // Room 1"/"PACE Room 2" — see config.js's paceRoomLabelForId()), not the
+  // raw internal slug. Still speculative/harmless if the column doesn't
+  // exist yet (see README "Known gaps") but this is what actually lands in
+  // the column the moment it does. Written here at CREATE time (Start
+  // Visit or Log Completed Visit) — never deferred to completion.
   async savePaceVisit(entry) {
     return this.createMappedListItem("IEP_Pace_Visits", {
       "Entry ID":           entry.id,
-      "PACE Room":          entry.paceRoom     || "",
+      "PACE Room":          paceRoomLabelForId(entry.paceRoom),
       "Student":            entry.studentName  || "",
       "Date":               entry.date         || "",
       "Time In":            entry.timeIn       || "",
@@ -368,7 +374,10 @@ const GRAPH = {
   async updatePaceVisit(itemId, entry) {
     if (!itemId) throw new Error("A SharePoint visit item is required for editing.");
     return this.updateMappedListItem("IEP_Pace_Visits", itemId, {
-      "PACE Room":         entry.paceRoom || "",
+      // CURRENT-PATCH: label, not slug — see savePaceVisit() above. Same-day
+      // edits can change the room via the Visit Info screen's room select,
+      // so (unlike completePaceVisit()) this full-field update does resend it.
+      "PACE Room":         paceRoomLabelForId(entry.paceRoom),
       "Student":           entry.studentName || "",
       "Date":              entry.date || "",
       "Time In":           entry.timeIn || "",
@@ -376,7 +385,13 @@ const GRAPH = {
       "Duration":          entry.durationMinutes ?? undefined,
       "Reason":            Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
       "Intervention Used": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
-      "SCM Used":          entry.scmUsed === true,
+      // CURRENT-PATCH fix: was `entry.scmUsed === true`, which silently
+      // coerced a null/unknown SCM value to `false` — inconsistent with the
+      // null-safe pattern already used by savePaceVisit()/completePaceVisit()
+      // below, and directly against the "do not treat blank as No" rule.
+      // In practice app.js's save-time guard no longer allows this path to
+      // run with a non-boolean scmUsed, but this stays null-safe regardless.
+      "SCM Used":          entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "Notes":             entry.notes || "",
       "Behavior Specialist": Array.isArray(entry.staffMembers) ? entry.staffMembers.join(", ") : (entry.staffMembers || ""),
       "Teacher Came From": entry.cameFromTeacher || ""

@@ -952,6 +952,21 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
     return;
   }
 
+  // CURRENT-PATCH: a completed visit may never save with an unknown/blank
+  // SCM value (an open live-start visit is the one legitimate exception,
+  // but that path saves via saveLiveVisit() above, never this handler).
+  // The SCM screen already makes this structurally hard to bypass — the
+  // only way forward from it is tapping Yes or No — but this is the same
+  // defensive re-check pattern as the date/time guard just above, and
+  // directly matches the "must require SCM Yes or No before save" rule.
+  if (STATE.scmUsed !== true && STATE.scmUsed !== false) {
+    document.getElementById("scmYesBtn").classList.remove("selected");
+    document.getElementById("scmNoBtn").classList.remove("selected");
+    nav("scm", "back");
+    showToast("Please record whether SCM was used.", "error");
+    return;
+  }
+
   STATE.saving = true;
   const btn = document.getElementById("saveEntryBtn");
   btn.disabled = true; btn.textContent = "Saving…";

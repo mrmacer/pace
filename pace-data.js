@@ -55,6 +55,25 @@ function enrichVisitContext(visits) {
   });
 }
 
+// CURRENT-PATCH: the read-side half of the room slug<->label boundary
+// conversion (write-side: graph.js's savePaceVisit()/updatePaceVisit(),
+// demo-data.js's createVisit()). Every consumer of a visit object —
+// visit-workflow.js's openForRoom(), recent-activity.js's room filter and
+// editModel(), app.js's openExitScreen()/beginEditVisit() — compares
+// visit["PACE Room"] against a raw slug (STATE.room/STATE.editingRoom).
+// Normalizing here, in the one function both getVisits() callers share,
+// means none of those call sites need to know the live SharePoint value is
+// actually a label. paceRoomIdForLabel() is a no-op on an already-slug
+// value (e.g. the local visit-context fallback in enrichVisitContext(), or
+// a legacy row saved before this patch), so this is safe to apply
+// unconditionally to both modes.
+function normalizeRoomOnRead(visits) {
+  return visits.map(visit => ({
+    ...visit,
+    "PACE Room": paceRoomIdForLabel(visit["PACE Room"])
+  }));
+}
+
 const PACE_DATA = {
   // Active, PACE-eligible students. Demo students are always considered
   // PACE-eligible (there's no separate "PACE Enabled" concept in the fake
@@ -75,14 +94,15 @@ const PACE_DATA = {
   async getVisits({ date } = {}) {
     if (APP_MODE === "demo") {
       const visits = DemoStorage.getVisits();
-      return date
+      const filtered = date
         ? visits.filter(visit => String(visit.Date || "").slice(0, 10) === String(date).slice(0, 10))
         : visits;
+      return normalizeRoomOnRead(filtered);
     }
     const visits = date
       ? await GRAPH.getPaceVisitsForDateByDisplayName(date)
       : await GRAPH.getPaceVisitsByDisplayName();
-    return enrichVisitContext(visits);
+    return normalizeRoomOnRead(enrichVisitContext(visits));
   },
 
   // PATCH 008: the existing provider remains the only UI data boundary.
@@ -111,7 +131,9 @@ const PACE_DATA = {
     }
     if (APP_MODE === "demo") {
       return DemoStorage.updateVisit(id, {
-        "PACE Room":         entry.paceRoom || "",
+        // CURRENT-PATCH: label, matching createVisit() and production's
+        // updatePaceVisit() — see config.js's paceRoomLabelForId().
+        "PACE Room":         paceRoomLabelForId(entry.paceRoom),
         "Student":           entry.studentName || "",
         "Date":              entry.date || "",
         "Time In":           entry.timeIn || "",
@@ -119,7 +141,9 @@ const PACE_DATA = {
         "Duration":          entry.durationMinutes ?? null,
         "Reason":            Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
         "Intervention Used": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
-        "SCM Used":          entry.scmUsed === true,
+        // CURRENT-PATCH fix: null-safe, matching completeVisit() below —
+        // was coercing an unset SCM to `false` (see graph.js's identical fix).
+        "SCM Used":          entry.scmUsed == null ? null : entry.scmUsed === true,
         "Notes":             entry.notes || "",
         "Staff Member":      joinSpecialists(entry.staffMembers),
         "Teacher Came From": entry.cameFromTeacher || ""

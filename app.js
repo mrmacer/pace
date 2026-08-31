@@ -241,6 +241,18 @@ function roomStorageKey() {
 
 /* ── Boot ─────────────────────────────────────────────────────────────── */
 
+// Consistent IEP Skook access-denied template (same wording used across
+// the other three apps in the suite). Used both for "no active IEP_Users2
+// record" and "IEP_App_Users PACE = No / lookup failed" — both are signed
+// in, both stop before any room/visit data loads.
+function showUnauthorized(message) {
+  document.getElementById("unauthorizedMsg").textContent = message;
+  const signedInAs = AUTH.staffName || AUTH.displayName || "";
+  const el = document.getElementById("unauthorizedSignedInAs");
+  if (el) el.textContent = signedInAs ? `Signed in as: ${signedInAs}` : "";
+  nav("unauthorized", "forward");
+}
+
 async function boot() {
   if (APP_MODE === "demo") {
     await startDemoMode();
@@ -258,14 +270,25 @@ async function boot() {
   document.getElementById("loadingStatus").textContent = "Signing you in…";
 
   if (AUTH.isUnauthorized) {
-    document.getElementById("unauthorizedMsg").textContent = AUTH.lookupError || "Your account is not approved for PACE Room Tracker.";
-    nav("unauthorized", "forward");
+    showUnauthorized(AUTH.lookupError || "Your account is not approved for PACE Room Tracker.");
     return;
   }
   if (!AUTH.isAuthenticated) {
     // account present but staff lookup didn't resolve; loadStaffFromSharePoint already ran in AUTH.init
-    document.getElementById("unauthorizedMsg").textContent = AUTH.lookupError || "Unable to verify your account.";
-    nav("unauthorized", "forward");
+    showUnauthorized(AUTH.lookupError || "Unable to verify your account.");
+    return;
+  }
+
+  // PATCH C: authorization now also runs through IEP_App_Users (email-
+  // keyed), on top of the "active IEP_Users2 record" check above. See
+  // iep-app-users.js for the reader/decide() and its MIGRATION MODE
+  // contract: no matching row falls back to legacyAllowed=true (today's
+  // actual PACE behavior — any active IEP_Users2 user), a lookup failure
+  // always denies. This runs before any room/visit data is shown.
+  await APP_USERS.resolve(AUTH.account?.username || "");
+  const paceDecision = APP_USERS.decide("PACE", true);
+  if (!paceDecision.allowed) {
+    showUnauthorized("You are signed in, but your account does not currently have access to PACE Room Tracker.");
     return;
   }
 

@@ -59,7 +59,8 @@ const CONFIG = {
   LISTS: {
     users:       "IEP_Users2",             // staff directory — Active + Role gate
     students:    "IEP_Students_2026_27",   // 2026–27 production roster
-    paceVisits:  "IEP_Pace_Visits"         // shared with MAC Walkthrough / admin dashboard
+    paceVisits:  "IEP_Pace_Visits",        // shared with MAC Walkthrough / admin dashboard
+    appUsers:    "IEP_App_Users"           // PATCH A: new cross-app permission registry — see iep-app-users.js
   },
 
   // Fallback roster list name, only used if LISTS.students is ever reset to

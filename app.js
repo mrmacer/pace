@@ -292,13 +292,14 @@ async function boot() {
     return;
   }
 
-  // PATCH 002: production's subtle identity indicator (Home screen only —
-  // see index.html). Never the raw email, and demoBanner is never touched
-  // on this path, so the two modes' indicators can't ever both show.
+  // Production-only authenticated shell control. Never the raw email, and
+  // demoBanner/authToolbar are never touched on the demo path, so the two
+  // modes' indicators can't ever both show.
+  const authToolbar = document.getElementById("authToolbar");
   const indicator = document.getElementById("signedInIndicator");
-  if (indicator) {
+  if (authToolbar && indicator && AUTH.isAuthenticated) {
     indicator.textContent = `Signed in as ${AUTH.staffName || "you"}`;
-    indicator.classList.remove("hidden");
+    authToolbar.classList.remove("hidden");
   }
 
   // TEMPORARY PATCH 003 DIAGNOSTIC — only ever unhidden here, i.e. only
@@ -333,6 +334,10 @@ async function startDemoMode() {
 
 document.getElementById("signInBtn").addEventListener("click", () => AUTH.login());
 document.getElementById("signOutFromUnauthBtn").addEventListener("click", () => AUTH.logout());
+document.getElementById("signOutBtn")?.addEventListener("click", () => {
+  if (APP_MODE === "demo" || !AUTH.account) return;
+  AUTH.logout();
+});
 
 /* ── HOME → ROOM ──────────────────────────────────────────────────────── */
 

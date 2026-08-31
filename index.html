@@ -28,6 +28,14 @@
 
 <div id="app">
 
+  <!-- Production-only authenticated shell control. Hidden by default and
+       revealed only after AUTH completes the real-user authorization gate;
+       demo mode never reveals or wires it. -->
+  <div class="auth-toolbar hidden" id="authToolbar" aria-label="Account actions">
+    <span class="signed-in-indicator" id="signedInIndicator"></span>
+    <button class="btn-text auth-sign-out" id="signOutBtn" type="button">Sign Out</button>
+  </div>
+
   <!-- ── Sign-in gate ─────────────────────────────────────────────── -->
   <section class="screen active" data-screen="signin">
     <div class="gate">
@@ -61,12 +69,6 @@
   <section class="screen" data-screen="home">
     <div class="panel-inner center-content">
       <h1 class="app-title">PACE Room Tracker</h1>
-      <!-- PATCH 002: production's subtle authenticated-identity indicator —
-           shown only here (not a persistent per-screen banner like Demo
-           Mode's), set from AUTH.staffName (an already-resolved friendly
-           name from IEP_Users2), never the raw email. Hidden by default;
-           app.js unhides it only after a successful production sign-in. -->
-      <p class="signed-in-indicator hidden" id="signedInIndicator"></p>
       <div class="room-picker">
         <button class="room-card" data-room="pace-room-1">
           <span class="room-card-label">PACE ROOM 1</span>

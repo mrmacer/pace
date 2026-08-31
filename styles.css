@@ -198,9 +198,18 @@ body[data-room="pace-room-2"] {
 .panel-inner.center-content { justify-content: center; }
 
 .app-title { font-size: 34px; font-weight: 800; text-align: center; margin-bottom: 8px; }
-/* PATCH 002: production-only, Home screen only — small and out of the way,
+/* PATCH 002: production-only identity indicator — small and out of the way,
    this is a kiosk, not an account dashboard. */
 .signed-in-indicator { font-size: 13px; font-weight: 600; color: var(--text-muted); margin: -4px 0 4px; }
+.auth-toolbar {
+  position: fixed; right: 14px; bottom: calc(14px + var(--safe-b)); z-index: 45;
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 5px 3px 10px;
+  background: rgba(255, 255, 255, .95); border: 1px solid var(--border);
+  border-radius: 999px; box-shadow: var(--shadow);
+}
+.auth-toolbar .signed-in-indicator { margin: 0; white-space: nowrap; }
+.auth-sign-out { font-size: 14px; padding: 8px 10px; }
 .section-label {
   font-size: 15px; font-weight: 700; color: var(--text-secondary);
   text-transform: uppercase; letter-spacing: .04em; margin-top: 12px;

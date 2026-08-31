@@ -129,7 +129,31 @@ const AUTH = {
     this._client.loginRedirect({ scopes: ["User.Read", "Sites.ReadWrite.All"] });
   },
 
+  _clearLocalSessionState() {
+    if (typeof localStorage === "undefined" || typeof CONFIG === "undefined") return;
+    const keys = CONFIG.STORAGE_KEYS || {};
+    [keys.LAST_ROOM, keys.VISIT_CONTEXT]
+      .filter(Boolean)
+      .forEach(key => localStorage.removeItem(key));
+  },
+
   logout() {
-    this._client.logoutRedirect({ account: this.account });
+    // Demo mode never constructs an MSAL client and must not clear its
+    // simulated data or attempt a Microsoft redirect.
+    if (typeof APP_MODE !== "undefined" && APP_MODE === "demo") return;
+
+    const account = this.account;
+    this.account = null;
+    this.staffId = null;
+    this.staffName = null;
+    this.role = null;
+    this.lookupError = null;
+    this._clearLocalSessionState();
+
+    if (!account || !this._client) return;
+    return this._client.logoutRedirect({
+      account,
+      postLogoutRedirectUri: window.location.origin
+    });
   }
 };

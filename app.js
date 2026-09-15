@@ -855,25 +855,36 @@ document.getElementById("scmNoBtn").addEventListener("click", () => setScm(false
 
 /* ── NOTES ────────────────────────────────────────────────────────────── */
 
+// CURRENT-PATCH: this screen is never reached by a live-start visit (see
+// isLiveStart()'s branch in reasonNextBtn's handler — a live start jumps
+// straight from Reason to Visit Info and saves via saveLiveVisit(), which
+// never sends Notes at all). Every path that DOES reach this screen —
+// Mark Complete, an after-the-fact completed entry, or editing an
+// existing completed visit (Recent Activity only ever surfaces already-
+// completed visits for edit — see RECENT_ACTIVITY.select()) — represents
+// a completed record, so Notes is unconditionally required here; no
+// optional/hide-behind-a-button state is needed any more.
 function renderNotesScreen() {
   const noteText = document.getElementById("noteText");
-  const addNoteBtn = document.getElementById("addNoteBtn");
   noteText.value = STATE.notes || "";
-  const showEditor = isEditingVisit() || Boolean(STATE.notes);
-  noteText.classList.toggle("hidden", !showEditor);
-  addNoteBtn.classList.toggle("hidden", showEditor);
+  const errorEl = document.getElementById("notesError");
+  if (errorEl) errorEl.classList.add("hidden");
 }
 
-document.getElementById("addNoteBtn").addEventListener("click", (e) => {
-  document.getElementById("noteText").classList.remove("hidden");
-  document.getElementById("noteText").focus();
-  e.target.classList.add("hidden");
-});
 document.getElementById("noteText").addEventListener("input", event => {
   STATE.notes = event.target.value;
+  document.getElementById("notesError")?.classList.add("hidden");
 });
 document.getElementById("notesNextBtn").addEventListener("click", () => {
-  STATE.notes = document.getElementById("noteText").value.trim();
+  const trimmed = document.getElementById("noteText").value.trim();
+  if (!trimmed) {
+    const el = document.getElementById("notesError");
+    if (el) { el.textContent = "Add a brief note before submitting this PACE visit."; el.classList.remove("hidden"); }
+    document.getElementById("noteText").focus();
+    return;
+  }
+  document.getElementById("notesError")?.classList.add("hidden");
+  STATE.notes = trimmed;
   renderConfirmCard();
   nav("confirm", "forward");
 });
@@ -992,6 +1003,25 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
     document.getElementById("scmNoBtn").classList.remove("selected");
     nav("scm", "back");
     showToast("Please record whether SCM was used.", "error");
+    return;
+  }
+
+  // CURRENT-PATCH: no completed/edited/after-the-fact PACE visit may ever
+  // save with blank or whitespace-only Notes — a live-start visit never
+  // reaches this handler at all (see the Notes screen comment above), so
+  // this can only ever block a genuinely completed record. Same defensive
+  // re-check pattern as the date/time and SCM guards just above: the
+  // Notes screen already makes this hard to bypass forward, this only
+  // catches it if STATE changed upstream since then. Nothing already
+  // entered is cleared — the user lands back on Notes with their draft
+  // (specialists, student, reason, support, SCM, times) fully intact.
+  if (!STATE.notes || !STATE.notes.trim()) {
+    nav("notes", "back");
+    renderNotesScreen();
+    const el = document.getElementById("notesError");
+    if (el) { el.textContent = "Add a brief note before submitting this PACE visit."; el.classList.remove("hidden"); }
+    document.getElementById("noteText")?.focus();
+    showToast("Add a brief note before submitting this PACE visit.", "error");
     return;
   }
 

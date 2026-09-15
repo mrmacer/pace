@@ -73,7 +73,11 @@ assert.match(app, /STATE\.staffMembers\.map\(escHtml\)\.join\("<br>"\)/);
 /* ── Notes: no arbitrary limit ───────────────────────────────────────── */
 
 assert.equal(/id="noteText"[^>]*maxlength/.test(html), false, "Notes textarea must not carry a frontend maxlength");
-assert.match(html, /id="noteText" class="note-textarea hidden" rows="6"/); // still a real, appropriately-sized textarea
+// Required-Notes patch removed the hidden-behind-a-button toggle (the
+// screen is now only ever reached in a required-Notes context — see
+// tests/patch-notes-required.test.js) — still a real, appropriately-sized
+// textarea, just no longer hidden by default.
+assert.match(html, /id="noteText" class="note-textarea" rows="6"/);
 assert.equal(/STATE\.notes[^;]*\.(slice|substring|substr)\(/.test(app), false, "Notes must never be truncated in JS");
 
 /* ── Full-length, multi-paragraph Notes round-trips unchanged ──────────── */

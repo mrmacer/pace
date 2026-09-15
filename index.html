@@ -286,8 +286,9 @@
     </header>
     <span class="room-badge"></span>
     <div class="panel-inner">
-      <button class="btn btn-secondary btn-lg btn-full" id="addNoteBtn">+ Add Note (Optional)</button>
-      <textarea id="noteText" class="note-textarea hidden" rows="6" placeholder="Optional note…"></textarea>
+      <label class="walk-field-label" for="noteText">Notes <span class="req">*</span></label>
+      <textarea id="noteText" class="note-textarea" rows="6" placeholder="Add a brief note about this visit…"></textarea>
+      <p class="visit-time-error hidden" id="notesError" role="alert"></p>
       <button class="btn btn-primary btn-lg btn-full sticky-next" id="notesNextBtn">Next</button>
     </div>
   </section>

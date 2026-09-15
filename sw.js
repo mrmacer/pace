@@ -9,7 +9,7 @@
    "Unable to sync" retry screen when offline, per the app's design).
    ───────────────────────────────────────────────────────────────────────── */
 
-const CACHE_NAME = "pace-tracker-shell-v15"; // ROOM-FIELD-NAME PATCH: confirmed live column is "Room"
+const CACHE_NAME = "pace-tracker-shell-v16"; // REQUIRED NOTES PATCH: index.html/app.js/styles.css changed
 const SHELL_FILES = [
   "./",
   "./index.html",

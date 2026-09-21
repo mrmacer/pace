@@ -151,8 +151,11 @@
     <span class="room-badge"></span>
     <p class="staff-context-line" id="specialistContextLine"></p>
     <div class="panel-inner">
-      <label class="walk-field-label" for="studentSearch">Search by student name</label>
-      <input type="text" id="studentSearch" class="search-input search-input-hero" placeholder="Start typing a name…" autocomplete="off" autocapitalize="words">
+      <div class="student-search-bar">
+        <label class="walk-field-label" for="studentSearch">Search by student name</label>
+        <input type="text" id="studentSearch" class="search-input search-input-hero" placeholder="Start typing a name…" autocomplete="off" autocapitalize="words">
+        <p class="roster-count" id="studentRosterCount" aria-live="polite"></p>
+      </div>
       <div id="studentGrid" class="student-grid"><p class="empty-hint">Loading students…</p></div>
     </div>
   </section>
@@ -385,6 +388,7 @@
 <script src="roster.js"></script>
 <script src="recent-activity.js"></script>
 <script src="visit-workflow.js"></script>
+<script src="student-select.js"></script>
 <script src="pace-data.js"></script>
 <!-- TEMPORARY PATCH 003 DIAGNOSTIC — delete this line along with diagnostic.js -->
 <script src="diagnostic.js"></script>

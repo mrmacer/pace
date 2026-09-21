@@ -508,27 +508,18 @@ document.getElementById("changeStaffBtn").addEventListener("click", () => {
 // which branches on APP_MODE) and searched synchronously from here on —
 // no re-fetch per keystroke.
 let cachedStudents = [];
-const STUDENT_SUGGESTION_LIMIT = 8;
 
 // Lowercase, strip punctuation ("Ja'de" still matches "jade"), collapse to
-// a plain space-joined string — shared by Student and Teacher Came From
-// search so both behave the same way.
+// a plain space-joined string — used by Teacher Came From search. Student
+// search uses the identical rule via PACE_STUDENT_SELECT.normalize().
 function normalizeSearchText(str) {
   return String(str || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
-}
-
-// Matches first name, last name, "First Last", AND "Last First" — not
-// just the single combined display name — so a last-name-only or
-// reversed-order search still finds the right student.
-function studentSearchCorpus(s) {
-  const parts = [s.name, s.firstName, s.lastName];
-  if (s.firstName || s.lastName) parts.push(`${s.lastName || ""} ${s.firstName || ""}`);
-  return normalizeSearchText(parts.filter(Boolean).join(" "));
 }
 
 async function openStudentScreen() {
   document.getElementById("specialistContextLine").textContent = STATE.staffMembers.join(", ");
   document.getElementById("studentSearch").value = "";
+  document.getElementById("studentRosterCount").textContent = "";
   document.getElementById("studentGrid").innerHTML = `<p class="empty-hint">Loading students…</p>`;
   nav("student", "forward");
   try {
@@ -540,8 +531,11 @@ async function openStudentScreen() {
   renderStudentGrid();
 }
 
+// The card label is presentation only ("Last, First" when the roster has
+// separate name fields); the student's identity/value remains s.name,
+// resolved by id in selectStudent() exactly as before.
 function studentCardHtml(s) {
-  return `<button class="student-card${STATE.student?.id === s.id ? " selected" : ""}" data-student-id="${escHtml(s.id)}">${escHtml(s.name)}</button>`;
+  return `<button class="student-card${STATE.student?.id === s.id ? " selected" : ""}" data-student-id="${escHtml(s.id)}">${escHtml(PACE_STUDENT_SELECT.displayLabel(s))}</button>`;
 }
 function wireStudentCards(grid) {
   grid.querySelectorAll(".student-card").forEach(btn => {
@@ -552,28 +546,19 @@ function wireStudentCards(grid) {
 function renderStudentGrid(filter = "") {
   const grid = document.getElementById("studentGrid");
   document.getElementById("specialistContextLine").textContent = STATE.staffMembers.join(", ");
-  const q = normalizeSearchText(filter);
 
-  // Blank search: a bounded set of alphabetical suggestions, never the
-  // whole roster — "staff should not need to scroll through the entire
-  // roster" is the hard requirement here, so this stays capped regardless
-  // of how large the real production roster grows.
-  if (!q) {
-    let suggestions = cachedStudents.slice().sort((a, b) => a.name.localeCompare(b.name)).slice(0, STUDENT_SUGGESTION_LIMIT);
-    if (isEditingVisit() && STATE.student) {
-      suggestions = [STATE.student, ...suggestions.filter(s => s.id !== STATE.student.id)].slice(0, STUDENT_SUGGESTION_LIMIT);
-    }
-    grid.innerHTML = `<p class="empty-hint">Start typing a student's name…</p>` + suggestions.map(studentCardHtml).join("");
-    wireStudentCards(grid);
+  // Every eligible (Active + PACE Enabled) student is shown alphabetically
+  // on open; the search box only FILTERS that complete roster. Nothing is
+  // capped or hidden until searched — see student-select.js.
+  const model = PACE_STUDENT_SELECT.renderModel(cachedStudents, filter);
+  document.getElementById("studentRosterCount").textContent = model.countText;
+
+  if (model.emptyMessage) {
+    grid.innerHTML = `<p class="empty-hint">${escHtml(model.emptyMessage)}</p>` +
+      `<p class="empty-hint">${escHtml(model.emptyHint)}</p>`;
     return;
   }
-
-  const students = cachedStudents.filter(s => studentSearchCorpus(s).includes(q));
-  if (students.length === 0) {
-    grid.innerHTML = `<p class="empty-hint">No matching PACE-enabled student found.</p>`;
-    return;
-  }
-  grid.innerHTML = students.map(studentCardHtml).join("");
+  grid.innerHTML = model.students.map(studentCardHtml).join("");
   wireStudentCards(grid);
 }
 

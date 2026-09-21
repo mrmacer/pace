@@ -281,6 +281,14 @@ body[data-room="pace-room-2"] {
 }
 .search-input-hero:focus { border-color: var(--color-primary); outline: none; }
 .student-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+/* The full eligible roster is listed on open, so keep the search box and the
+   "N students available / X of N students" indicator pinned while scrolling. */
+.student-search-bar {
+  /* -8px cancels .panel-inner's 8px top padding so scrolled cards never show above the pinned bar */
+  position: sticky; top: -8px; z-index: 2; background: var(--bg);
+  display: flex; flex-direction: column; gap: 8px; padding: 12px 0 10px;
+}
+.roster-count { margin: 0; min-height: 20px; font-size: 15px; font-weight: 700; color: var(--text-muted); }
 /* PATCH 006: "Other / Not Listed" reads as a fallback, not a peer option —
    same dashed-border language as .btn-diagnostic. */
 .student-card.other-option { border: 1.5px dashed var(--border); box-shadow: none; color: var(--text-secondary); }

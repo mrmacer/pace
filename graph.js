@@ -91,6 +91,26 @@ const GRAPH = {
     return resp.json();
   },
 
+  // STAFF CORRECTIONS: single-item DELETE. A successful Graph delete is
+  // HTTP 204 with no body, so nothing is parsed on success; any non-2xx
+  // throws with the status attached (never a silent success).
+  async _delete(path) {
+    assertGraphAllowed();
+    const token = await AUTH.acquireGraphToken();
+    const resp  = await fetch(`${this._BASE}/${path}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      console.error("Graph DELETE failed", { path, status: resp.status, response: text });
+      const error = new Error(`Graph DELETE ${resp.status}`);
+      error.status = resp.status;
+      throw error;
+    }
+    return null;
+  },
+
   async getSiteId() {
     if (this._siteId) return this._siteId;
     const data = await this._get(`sites/${this._SITE}`);
@@ -382,21 +402,28 @@ const GRAPH = {
   async updatePaceVisit(itemId, entry) {
     if (!itemId) throw new Error("A SharePoint visit item is required for editing.");
     // CURRENT-PATCH: label, not slug — see savePaceVisit() above. Same-day
-    // edits can change the room via the Visit Info screen's room select,
-    // so (unlike completePaceVisit()) this full-field update does resend it.
+    // edits can change the room via the Visit Info screen's room select.
     // ROOM-FIELD-NAME PATCH: all three tolerated aliases — see savePaceVisit().
-    const roomValue = paceRoomLabelForId(entry.paceRoom);
+    //
+    // STAFF CORRECTIONS: a field whose key is ABSENT from `entry` is left
+    // undefined here, and mapFields() drops undefined values — so a
+    // correction that only changed Notes PATCHes only Notes and never
+    // touches Time In / Time Out / Duration. A full entry (every key
+    // present) produces exactly the same payload as before.
+    const has = key => entry[key] !== undefined;
+    const joined = value => Array.isArray(value) ? value.join(", ") : (value || "");
+    const roomValue = has("paceRoom") ? paceRoomLabelForId(entry.paceRoom) : undefined;
     return this.updateMappedListItem("IEP_Pace_Visits", itemId, {
       "Room":              roomValue,
       "PACE Room":         roomValue,
       "Pace Room":         roomValue,
-      "Student":           entry.studentName || "",
-      "Date":              entry.date || "",
-      "Time In":           entry.timeIn || "",
-      "Time Out":          entry.timeOut || "",
+      "Student":           has("studentName") ? (entry.studentName || "") : undefined,
+      "Date":              has("date") ? (entry.date || "") : undefined,
+      "Time In":           has("timeIn") ? (entry.timeIn || "") : undefined,
+      "Time Out":          has("timeOut") ? (entry.timeOut || "") : undefined,
       "Duration":          entry.durationMinutes ?? undefined,
-      "Reason":            Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
-      "Intervention Used": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
+      "Reason":            has("behaviors") ? joined(entry.behaviors) : undefined,
+      "Intervention Used": has("interventions") ? joined(entry.interventions) : undefined,
       // CURRENT-PATCH fix: was `entry.scmUsed === true`, which silently
       // coerced a null/unknown SCM value to `false` — inconsistent with the
       // null-safe pattern already used by savePaceVisit()/completePaceVisit()
@@ -404,10 +431,24 @@ const GRAPH = {
       // In practice app.js's save-time guard no longer allows this path to
       // run with a non-boolean scmUsed, but this stays null-safe regardless.
       "SCM Used":          entry.scmUsed == null ? undefined : entry.scmUsed === true,
-      "Notes":             entry.notes || "",
-      "Behavior Specialist": Array.isArray(entry.staffMembers) ? entry.staffMembers.join(", ") : (entry.staffMembers || ""),
-      "Teacher Came From": entry.cameFromTeacher || ""
+      "Notes":             has("notes") ? (entry.notes || "") : undefined,
+      "Behavior Specialist": has("staffMembers") ? joined(entry.staffMembers) : undefined,
+      "Teacher Came From": has("cameFromTeacher") ? (entry.cameFromTeacher || "") : undefined
     });
+  },
+
+  // STAFF CORRECTIONS: deletes exactly ONE IEP_Pace_Visits item, addressed
+  // only by its SharePoint list-item id. Never by student, date, room, or
+  // any search/bulk criteria. SharePoint list-item ids are integers, so
+  // anything else (empty, a path fragment, a GUID) is refused before any
+  // network call — an odd value can never widen the request URL.
+  async deletePaceVisit(itemId) {
+    const id = String(itemId ?? "").trim();
+    if (!/^\d+$/.test(id)) throw new Error("A valid SharePoint visit item is required for deletion.");
+    const siteId = await this.getSiteId();
+    const listId = await this.getListId(CONFIG.LISTS.paceVisits);
+    await this._delete(`sites/${siteId}/lists/${listId}/items/${id}`);
+    return { deleted: true, id };
   },
 
   // Legacy open-visit close path — Recent Activity corrections use the

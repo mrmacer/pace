@@ -158,7 +158,8 @@ const names = list => list.map(s => s.name);
   assert.match(html, /id="studentSearch"[^>]*search-input-hero/, "the large search field is preserved");
   assert.match(html, /<script src="student-select\.js"><\/script>\s*<script src="pace-data\.js">/, "module loads before app.js, ahead of pace-data");
   assert.match(sw, /"\.\/student-select\.js"/, "new file must be in the service-worker shell list");
-  assert.match(sw, /CACHE_NAME = "pace-tracker-shell-v17"/, "cache version bumped so installed browsers pick this up");
+  // v17 introduced this patch's assets; later patches bump it further (e.g. v18 for staff corrections).
+assert.ok(Number(sw.match(/CACHE_NAME = "pace-tracker-shell-v(\d+)"/)?.[1]) >= 17, "cache version must be v17 or later so installed browsers pick this up");
 
   /* 13: selecting a student behaves exactly as before */
   assert.match(app, /btn\.addEventListener\("click", \(\) => selectStudent\(btn\.dataset\.studentId\)\)/);

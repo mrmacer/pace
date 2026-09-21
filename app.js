@@ -186,6 +186,9 @@ const STATE = {
   editingVisitId: null,
   editingOriginalDate: "",
   editingRoom: "",
+  editOriginal: null,    // STAFF CORRECTIONS: values shown when the edit began; the baseline for "what changed"
+  deleteTarget: null,    // STAFF CORRECTIONS: the Recent Activity visit awaiting delete confirmation
+  deleting: false,
   saving: false,
   exitTarget: null,      // the open-visit row being closed
   duplicateTarget: null  // the open-visit row that blocked a new entry
@@ -210,6 +213,7 @@ function resetTrip() {
   STATE.editingVisitId = null;
   STATE.editingOriginalDate = "";
   STATE.editingRoom = "";
+  STATE.editOriginal = null;
   STATE.exitTarget = null;
   STATE.duplicateTarget = null;
 }
@@ -224,6 +228,17 @@ function isLiveStart() {
 
 function isCompletingVisit() {
   return STATE.workflowMode === PACE_VISIT_WORKFLOW.MODES.COMPLETING;
+}
+
+// STAFF CORRECTIONS: the ONE authorization check for editing and deleting
+// visits — the same PACE gate boot() enforces (a signed-in user with an
+// active IEP_Users2 record whose IEP_App_Users PACE permission allows PACE),
+// re-evaluated from the state boot() already resolved. It is deliberately
+// NOT a role check: any PACE-authorized staff member may correct a visit.
+// Demo mode has no accounts and touches only local fake data.
+function isPaceAuthorized() {
+  if (APP_MODE === "demo") return true;
+  return AUTH.isAuthenticated && APP_USERS.decide("PACE", true).allowed;
 }
 
 function beginVisitWorkflow(mode) {
@@ -892,7 +907,10 @@ function buildVisitEntry({ open = false } = {}) {
     scmUsed: open ? null : STATE.scmUsed,
     notes: open ? "" : STATE.notes,
     submittedByName: AUTH.staffName || AUTH.displayName,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    // STAFF CORRECTIONS: present only while editing an existing visit;
+    // PACE_DATA.updateVisit() uses it to send just the changed fields.
+    original: isEditingVisit() ? STATE.editOriginal : undefined
   };
 }
 
@@ -1008,6 +1026,20 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
     document.getElementById("noteText")?.focus();
     showToast("Add a brief note before submitting this PACE visit.", "error");
     return;
+  }
+
+  // STAFF CORRECTIONS: editing an existing visit re-checks PACE
+  // authorization at the moment of the write, and refuses a save that
+  // would change nothing rather than sending an empty PATCH.
+  if (isEditingVisit()) {
+    if (!isPaceAuthorized()) {
+      showToast("Your account is not authorized to edit PACE visits.", "error");
+      return;
+    }
+    if (!PACE_VISIT_CORRECTIONS.hasChanges(STATE.editOriginal, buildVisitEntry())) {
+      showToast("No changes to save. Use Back to change something, or Cancel.", "error");
+      return;
+    }
   }
 
   STATE.saving = true;
@@ -1149,6 +1181,10 @@ document.getElementById("exitReturnBtn").addEventListener("click", () => {
 /* ── RECENT (privacy-limited cards + same-day edit entry point) ──────── */
 
 async function beginEditVisit(visit) {
+  if (!isPaceAuthorized()) {
+    showToast("Your account is not authorized to edit PACE visits.", "error");
+    return;
+  }
   if (!RECENT_ACTIVITY.isEditableToday(visit, todayISODate())) {
     showToast("Only today's visits can be edited.", "error");
     return;
@@ -1174,6 +1210,21 @@ async function beginEditVisit(visit) {
   STATE.notes = edit.notes;
   STATE.cameFromTeacher = edit.cameFromTeacher || null;
   STATE.staffMembers = edit.specialists || [];
+  // STAFF CORRECTIONS: remember exactly what staff were shown, so save can
+  // write only what they actually change (see PACE_VISIT_CORRECTIONS).
+  STATE.editOriginal = {
+    paceRoom: edit.room,
+    studentName: edit.student,
+    date: edit.date,
+    timeIn: edit.timeIn,
+    timeOut: edit.timeOut,
+    behaviors: [...edit.reasons],
+    interventions: [...edit.supports],
+    scmUsed: edit.scmUsed,
+    notes: edit.notes,
+    staffMembers: [...(edit.specialists || [])],
+    cameFromTeacher: edit.cameFromTeacher || ""
+  };
   document.querySelector('[data-screen="specialist"] .btn-back').dataset.nav = "recent";
 
   const [specialists, students, teachers] = await Promise.allSettled([
@@ -1199,6 +1250,92 @@ async function beginEditVisit(visit) {
   renderVisitInfo();
   nav("visitinfo", "forward");
 }
+
+/* ── STAFF CORRECTIONS: delete a visit ──────────────────────────────────
+   Two steps, never one: the trash icon only OPENS a confirmation naming the
+   visit; nothing is sent until the dialog's Delete button is pressed. The
+   destructive write targets the exact SharePoint item id carried by the
+   Recent Activity record, is re-authorized at the moment it runs, and the
+   list is only changed after SharePoint confirms — a failure leaves the
+   record on screen. See visit-corrections.js runDelete(). */
+
+const TRASH_ICON_SVG = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
+
+function requestDeleteVisit(visit) {
+  if (!isPaceAuthorized()) {
+    showToast("Your account is not authorized to delete PACE visits.", "error");
+    return;
+  }
+  if (!RECENT_ACTIVITY.isEditableToday(visit, todayISODate())) {
+    showToast("Only today's visits can be deleted.", "error");
+    return;
+  }
+  const summary = PACE_VISIT_CORRECTIONS.deleteSummary(visit, {
+    longDate: fmtLongDate,
+    time: fmt12h,
+    roomLabel: roomId => CONFIG.ROOMS.find(room => room.id === roomId)?.label || roomId
+  });
+  STATE.deleteTarget = visit;
+  document.getElementById("deleteVisitSummary").innerHTML = [summary.student, summary.date, summary.time, summary.room]
+    .filter(Boolean)
+    .map((line, index) => `<p class="${index === 0 ? "delete-summary-name" : "delete-summary-line"}">${escHtml(line)}</p>`)
+    .join("");
+  document.getElementById("deleteVisitError").classList.add("hidden");
+  document.getElementById("deleteVisitOverlay").classList.remove("hidden");
+  document.getElementById("cancelDeleteVisitBtn").focus();
+}
+
+function closeDeleteConfirm() {
+  STATE.deleteTarget = null;
+  STATE.deleting = false;
+  const confirmBtn = document.getElementById("confirmDeleteVisitBtn");
+  confirmBtn.disabled = false;
+  confirmBtn.textContent = "Delete Visit";
+  document.getElementById("cancelDeleteVisitBtn").disabled = false;
+  document.getElementById("deleteVisitOverlay").classList.add("hidden");
+}
+
+document.getElementById("cancelDeleteVisitBtn").addEventListener("click", () => {
+  if (STATE.deleting) return;
+  closeDeleteConfirm();
+});
+
+document.getElementById("confirmDeleteVisitBtn").addEventListener("click", async () => {
+  if (STATE.deleting || !STATE.deleteTarget) return;
+  STATE.deleting = true;
+  const confirmBtn = document.getElementById("confirmDeleteVisitBtn");
+  const cancelBtn = document.getElementById("cancelDeleteVisitBtn");
+  const errorEl = document.getElementById("deleteVisitError");
+  confirmBtn.disabled = true;
+  confirmBtn.textContent = "Deleting…";
+  cancelBtn.disabled = true;
+  errorEl.classList.add("hidden");
+
+  const result = await PACE_VISIT_CORRECTIONS.runDelete({
+    visit: STATE.deleteTarget,
+    confirmed: true, // only this button ever passes true
+    isAuthorized: isPaceAuthorized,
+    deleteVisit: itemId => PACE_DATA.deleteVisit(itemId),
+    onSuccess: async () => {
+      closeDeleteConfirm();
+      showToast("PACE visit deleted.");
+      await loadRecentActivity();
+      await refreshRoomVisits();
+    }
+  });
+
+  if (result.status === "deleted") return;
+  STATE.deleting = false;
+  confirmBtn.disabled = false;
+  confirmBtn.textContent = "Delete Visit";
+  cancelBtn.disabled = false;
+  errorEl.textContent = result.status === "unauthorized"
+    ? "Your account is not authorized to delete PACE visits."
+    : result.status === "invalid"
+      ? "This visit could not be identified. Nothing was deleted."
+      : PACE_VISIT_CORRECTIONS.deleteFailureMessage(result.error);
+  errorEl.classList.remove("hidden");
+});
 
 async function loadRecentActivity() {
   const listEl = document.getElementById("recentList");
@@ -1238,9 +1375,18 @@ async function loadRecentActivity() {
         ${card.reason ? `<p class="recent-card-reason">${escHtml(card.reason)}</p>` : ""}
         ${card.specialist ? `<p class="recent-card-specialist">${escHtml(card.specialist)}</p>` : ""}
         ${cardRoom ? `<p class="recent-card-room">${escHtml(cardRoom)}</p>` : ""}
-        <button class="recent-edit-btn" type="button" data-recent-edit="${index}">Edit today's visit</button>
+        <div class="recent-card-actions">
+          <button class="recent-edit-btn" type="button" data-recent-edit="${index}">Edit today's visit</button>
+          <button class="recent-delete-btn" type="button" data-recent-delete="${index}" aria-label="Delete this visit" title="Delete this visit">${TRASH_ICON_SVG}</button>
+        </div>
       </article>`;
     }).join("");
+    listEl.querySelectorAll("[data-recent-delete]").forEach(button => {
+      button.addEventListener("click", () => {
+        const visit = result.visits[Number(button.dataset.recentDelete)];
+        if (visit) requestDeleteVisit(visit);
+      });
+    });
     listEl.querySelectorAll("[data-recent-edit]").forEach(button => {
       button.addEventListener("click", async () => {
         const visit = result.visits[Number(button.dataset.recentEdit)];

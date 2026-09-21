@@ -374,6 +374,22 @@
            app.js only when APP_MODE === "demo". -->
       <button class="btn-reset-demo hidden" id="resetDemoBtn">Reset Demo Data</button>
     </div>
+
+    <!-- STAFF CORRECTIONS: delete confirmation. Opened by a Recent Activity
+         card's trash icon; nothing is sent until "Delete Visit" is pressed. Lives inside the
+         Recent screen (not the Confirm screen like the other overlays) so it can appear there. -->
+    <div class="overlay hidden" id="deleteVisitOverlay" role="alertdialog" aria-modal="true" aria-labelledby="deleteVisitTitle">
+      <div class="overlay-card">
+        <h3 id="deleteVisitTitle">Delete PACE Visit?</h3>
+        <div class="delete-summary" id="deleteVisitSummary"></div>
+        <p class="delete-warning">This permanently removes this visit. It cannot be undone.</p>
+        <p class="visit-time-error hidden" id="deleteVisitError" role="alert"></p>
+        <div class="stacked-actions">
+          <button class="btn btn-secondary btn-lg btn-full" id="cancelDeleteVisitBtn" type="button">Cancel</button>
+          <button class="btn btn-danger btn-lg btn-full" id="confirmDeleteVisitBtn" type="button">Delete Visit</button>
+        </div>
+      </div>
+    </div>
   </section>
 
 </div>
@@ -388,6 +404,7 @@
 <script src="roster.js"></script>
 <script src="recent-activity.js"></script>
 <script src="visit-workflow.js"></script>
+<script src="visit-corrections.js"></script>
 <script src="student-select.js"></script>
 <script src="pace-data.js"></script>
 <!-- TEMPORARY PATCH 003 DIAGNOSTIC — delete this line along with diagnostic.js -->

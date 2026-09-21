@@ -30,14 +30,29 @@ function loadVisitContext() {
   catch { return {}; }
 }
 
+// STAFF CORRECTIONS: a correction may carry only the fields that changed, so
+// a key absent from `entry` keeps the value already remembered instead of
+// being blanked. A full entry (create / legacy full update) behaves as before.
 function rememberVisitContext(itemId, entry) {
   if (!itemId || APP_MODE === "demo") return;
   const context = loadVisitContext();
+  const previous = context[String(itemId)] || {};
   context[String(itemId)] = {
-    room: entry.paceRoom || "",
-    specialist: joinSpecialists(entry.staffMembers),
-    teacher: entry.cameFromTeacher || ""
+    room: entry.paceRoom !== undefined ? (entry.paceRoom || "") : (previous.room || ""),
+    specialist: entry.staffMembers !== undefined ? joinSpecialists(entry.staffMembers) : (previous.specialist || ""),
+    teacher: entry.cameFromTeacher !== undefined ? (entry.cameFromTeacher || "") : (previous.teacher || "")
   };
+  localStorage.setItem(CONFIG.STORAGE_KEYS.VISIT_CONTEXT, JSON.stringify(context));
+}
+
+// STAFF CORRECTIONS: a deleted visit leaves nothing behind on this device.
+// (SharePoint item ids are never reused, so an orphan would be harmless —
+// this just keeps the local cache from accumulating dead entries.)
+function forgetVisitContext(itemId) {
+  if (!itemId || APP_MODE === "demo") return;
+  const context = loadVisitContext();
+  if (!Object.prototype.hasOwnProperty.call(context, String(itemId))) return;
+  delete context[String(itemId)];
   localStorage.setItem(CONFIG.STORAGE_KEYS.VISIT_CONTEXT, JSON.stringify(context));
 }
 
@@ -145,34 +160,72 @@ const PACE_DATA = {
   // Same-day correction path. The UI can only discover today's rows, and
   // the provider independently rejects any payload that is not for the
   // device's local today before choosing localStorage or Graph.
+  //
+  // STAFF CORRECTIONS: when app.js supplies `entry.original` (the snapshot
+  // taken when the edit began), this is a correction of an existing
+  // COMPLETED visit and:
+  //   - only fields that actually changed are written (never an
+  //     unnecessary rewrite of Time In / Time Out / Duration);
+  //   - Duration is recomputed only if a time changed, through the one
+  //     canonical PACE_VISIT_WORKFLOW.durationMinutes();
+  //   - Notes must be non-blank and both times must remain present, so a
+  //     correction can neither dodge the required-Notes rule nor turn a
+  //     completed visit back into an open one;
+  //   - nothing to change is refused rather than sent as an empty PATCH.
+  // A call without `entry.original` (legacy full update) is unchanged.
   async updateVisit(id, entry) {
     if (!id) throw new Error("A visit is required for editing.");
-    if (String(entry?.date || "").slice(0, 10) !== paceDataTodayISODate()) {
+    const isCorrection = Boolean(entry?.original);
+    const changes = isCorrection
+      ? PACE_VISIT_CORRECTIONS.buildEditChanges(entry.original, entry, {
+          durationMinutes: (timeIn, timeOut) => PACE_VISIT_WORKFLOW.durationMinutes(timeIn, timeOut)
+        })
+      : entry;
+    const visitDate = String(changes?.date ?? changes?.visitDate ?? "").slice(0, 10);
+    if (visitDate !== paceDataTodayISODate()) {
       throw new Error("Only today's visits can be edited.");
     }
-    if (APP_MODE === "demo") {
-      return DemoStorage.updateVisit(id, {
-        // CURRENT-PATCH: label, matching createVisit() and production's
-        // updatePaceVisit() — see config.js's paceRoomLabelForId().
-        // ROOM-FIELD-NAME PATCH: "Room", matching createVisit()'s renamed key.
-        "Room":              paceRoomLabelForId(entry.paceRoom),
-        "Student":           entry.studentName || "",
-        "Date":              entry.date || "",
-        "Time In":           entry.timeIn || "",
-        "Time Out":          entry.timeOut || "",
-        "Duration":          entry.durationMinutes ?? null,
-        "Reason":            Array.isArray(entry.behaviors) ? entry.behaviors.join(", ") : (entry.behaviors || ""),
-        "Intervention Used": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
-        // CURRENT-PATCH fix: null-safe, matching completeVisit() below —
-        // was coercing an unset SCM to `false` (see graph.js's identical fix).
-        "SCM Used":          entry.scmUsed == null ? null : entry.scmUsed === true,
-        "Notes":             entry.notes || "",
-        "Staff Member":      joinSpecialists(entry.staffMembers),
-        "Teacher Came From": entry.cameFromTeacher || ""
-      });
+    if (isCorrection) {
+      const problem = PACE_VISIT_CORRECTIONS.completedVisitProblem(entry);
+      if (problem) throw new Error(problem);
+      if (!PACE_VISIT_CORRECTIONS.hasChanges(entry.original, entry)) throw new Error("No changes to save.");
     }
-    const result = await GRAPH.updatePaceVisit(id, entry);
-    rememberVisitContext(id, entry);
+    const has = key => changes[key] !== undefined;
+    if (APP_MODE === "demo") {
+      const patch = {};
+      // CURRENT-PATCH: label, matching createVisit() and production's
+      // updatePaceVisit() — see config.js's paceRoomLabelForId().
+      // ROOM-FIELD-NAME PATCH: "Room", matching createVisit()'s renamed key.
+      if (has("paceRoom")) patch["Room"] = paceRoomLabelForId(changes.paceRoom);
+      if (has("studentName")) patch["Student"] = changes.studentName || "";
+      if (has("date")) patch["Date"] = changes.date || "";
+      if (has("timeIn")) patch["Time In"] = changes.timeIn || "";
+      if (has("timeOut")) patch["Time Out"] = changes.timeOut || "";
+      if (has("durationMinutes")) patch["Duration"] = changes.durationMinutes ?? null;
+      if (has("behaviors")) patch["Reason"] = Array.isArray(changes.behaviors) ? changes.behaviors.join(", ") : (changes.behaviors || "");
+      if (has("interventions")) patch["Intervention Used"] = Array.isArray(changes.interventions) ? changes.interventions.join(", ") : (changes.interventions || "");
+      // CURRENT-PATCH fix: null-safe, matching completeVisit() below —
+      // was coercing an unset SCM to `false` (see graph.js's identical fix).
+      if (has("scmUsed")) patch["SCM Used"] = changes.scmUsed == null ? null : changes.scmUsed === true;
+      if (has("notes")) patch["Notes"] = changes.notes || "";
+      if (has("staffMembers")) patch["Staff Member"] = joinSpecialists(changes.staffMembers);
+      if (has("cameFromTeacher")) patch["Teacher Came From"] = changes.cameFromTeacher || "";
+      return DemoStorage.updateVisit(id, patch);
+    }
+    const result = await GRAPH.updatePaceVisit(id, changes);
+    rememberVisitContext(id, changes);
+    return result;
+  },
+
+  // STAFF CORRECTIONS: removes exactly one visit, by item id only. Success
+  // is returned only after the store confirmed it (Graph 204 in production);
+  // any failure throws and nothing is reported as deleted.
+  async deleteVisit(id) {
+    const itemId = String(id ?? "").trim();
+    if (!itemId) throw new Error("A visit is required for deletion.");
+    if (APP_MODE === "demo") return DemoStorage.deleteVisit(itemId);
+    const result = await GRAPH.deletePaceVisit(itemId);
+    forgetVisitContext(itemId);
     return result;
   },
 

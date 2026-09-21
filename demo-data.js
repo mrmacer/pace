@@ -142,6 +142,17 @@ const DemoStorage = {
     return visit;
   },
 
+  // STAFF CORRECTIONS: removes exactly the one demo row with this id; never
+  // by any other property. Throws (deleting nothing) if that id isn't there.
+  deleteVisit(id) {
+    const data = this.load();
+    const matches = data.paceVisits.filter(item => item.id === id);
+    if (matches.length !== 1) throw new Error("Demo visit not found.");
+    data.paceVisits = data.paceVisits.filter(item => item.id !== id);
+    this.save(data);
+    return { deleted: true, id };
+  },
+
   reset() {
     localStorage.removeItem(DEMO_CONFIG.storageKey);
   }

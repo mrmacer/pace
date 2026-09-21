@@ -420,6 +420,20 @@ body[data-room="pace-room-2"] {
 .recent-edit-btn:active { transform: scale(.97); }
 .recent-edit-btn:disabled { opacity: .55; cursor: wait; transform: none; }
 .recent-error { color: var(--red); }
+/* STAFF CORRECTIONS: Edit + trash sit side by side on each card. */
+.recent-card-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.recent-card-actions .recent-edit-btn { margin-top: 0; align-self: auto; }
+.recent-delete-btn {
+  min-width: 48px; min-height: 44px; padding: 9px 12px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--red-border); border-radius: 10px; background: var(--red-bg); color: var(--red); cursor: pointer;
+}
+.recent-delete-btn:active { transform: scale(.97); }
+.btn-danger { background: var(--red); color: #fff; border: none; }
+.delete-summary { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; margin: 4px 0 10px; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.delete-summary-name { font-size: 19px; font-weight: 800; }
+.delete-summary-line { font-size: 16px; font-weight: 600; color: var(--text-secondary); }
+.delete-warning { font-size: 14px; font-weight: 700; color: var(--red); margin-bottom: 8px; }
 .correction-hint { text-align: center; color: var(--text-muted); font-size: 13px; padding: 16px 8px 4px; }
 
 /* ── Toast ────────────────────────────────────────────────────────────── */

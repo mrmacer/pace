@@ -78,6 +78,13 @@
           <span class="room-card-label">PACE ROOM 2</span>
           <span class="room-card-hallway">GREEN HALL</span>
         </button>
+        <!-- PATCH 011: support given outside a physical PACE room (Wiggle
+             Room, a classroom check-in, a walk, etc.) — logged the same way
+             as a room visit, just not tied to Room 1/2. -->
+        <button class="room-card" data-room="other">
+          <span class="room-card-label">OTHER</span>
+          <span class="room-card-hallway">OUTSIDE PACE ROOM</span>
+        </button>
       </div>
 
       <!-- TEMPORARY PATCH 003 DIAGNOSTIC — production-only, shown by app.js
@@ -111,13 +118,13 @@
     <div class="panel-inner">
       <div class="room-visit-actions">
         <button class="btn btn-primary btn-huge btn-full" id="startLiveVisitBtn">START VISIT</button>
-        <p class="action-caption">Student is entering PACE now</p>
+        <p class="action-caption" id="startVisitCaption">Student is entering PACE now</p>
         <button class="btn btn-secondary btn-lg btn-full" id="logCompletedVisitBtn">LOG COMPLETED VISIT</button>
         <p class="action-caption">Visit already happened</p>
       </div>
 
       <div id="openVisitsLegacy">
-        <h3 class="section-label">Currently in PACE</h3>
+        <h3 class="section-label" id="currentlyInPaceHeading">Currently in PACE</h3>
         <div id="currentlyInPace" class="current-list">
           <p class="empty-hint">Loading…</p>
         </div>

@@ -128,6 +128,16 @@ body[data-room="pace-room-2"] {
   --room-accent-bg:    #f0fdf4;
   --room-accent-border:#bbf7d0;
 }
+/* PATCH 011: "Other" — support outside a physical PACE room. Neutral gray,
+   deliberately distinct from both room colors, so staff can't mistake it
+   for a third physical room at a glance. */
+body[data-room="other"] {
+  --room-accent:       #94a3b8;
+  --room-accent-dark:  #475569;
+  --room-accent-text:  #334155;
+  --room-accent-bg:    #f8fafc;
+  --room-accent-border:#e2e8f0;
+}
 
 .room-badge {
   display: block; text-align: center; font-size: 12px; font-weight: 800;
@@ -150,6 +160,11 @@ body[data-room="pace-room-2"] {
 .room-card[data-room="pace-room-2"] .room-card-label   { color: #14532d; }
 .room-card[data-room="pace-room-2"] .room-card-hallway { color: #15803d; }
 .room-card[data-room="pace-room-2"]:active { border-color: #4ade80; }
+
+.room-card[data-room="other"] { border-color: #e2e8f0; background: #f8fafc; }
+.room-card[data-room="other"] .room-card-label   { color: #334155; }
+.room-card[data-room="other"] .room-card-hallway { color: #475569; }
+.room-card[data-room="other"]:active { border-color: #94a3b8; }
 
 .room-card-label   { display: block; font-size: 24px; font-weight: 800; }
 .room-card-hallway { display: block; font-size: 14px; font-weight: 700; letter-spacing: .04em; margin-top: 6px; }
@@ -232,7 +247,7 @@ body[data-room="pace-room-2"] {
 .sticky-next { position: sticky; bottom: 8px; margin-top: auto; }
 
 /* ── Home: room picker ────────────────────────────────────────────────── */
-.room-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; width: min(90vw, 820px); }
+.room-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; width: min(90vw, 820px); }
 .room-card {
   background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: var(--shadow); min-height: 220px; display: flex; flex-direction: column;

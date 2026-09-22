@@ -360,6 +360,15 @@ document.querySelectorAll(".room-card").forEach(btn => {
   btn.addEventListener("click", () => enterRoom(btn.dataset.room, "forward"));
 });
 
+// PATCH 011: the CONFIG.ROOMS entry for whatever room is "in effect" right
+// now — the room being edited if a same-day edit is in progress, otherwise
+// the selected room. Centralizes the one lookup every "is this a physical
+// PACE room, or the non-room 'Other' location" copy decision below reads,
+// rather than repeating `CONFIG.ROOMS.find(...)` at each call site.
+function currentRoomConfig() {
+  return CONFIG.ROOMS.find(r => r.id === (STATE.editingRoom || STATE.room));
+}
+
 async function enterRoom(roomId, direction) {
   STATE.room = roomId;
   // PATCH 004: a (re-)entered room is a fresh session — re-confirm the
@@ -377,6 +386,14 @@ async function enterRoom(roomId, direction) {
   // screen styling itself individually.
   document.body.dataset.room = roomId;
   updateRoomBadges();
+  // PATCH 011: "Other" isn't a physical PACE room, so the room screen's
+  // copy that assumes one ("...entering PACE now", "Currently in PACE")
+  // needs to say something else there.
+  const isPhysicalRoom = room?.isPhysicalRoom !== false;
+  document.getElementById("startVisitCaption").textContent =
+    isPhysicalRoom ? "Student is entering PACE now" : "Support is starting now";
+  document.getElementById("currentlyInPaceHeading").textContent =
+    isPhysicalRoom ? "Currently in PACE" : "Currently receiving support";
   nav("room", direction);
   await refreshRoomVisits();
 }
@@ -411,7 +428,8 @@ function renderCurrentlyInPace() {
   const listEl = document.getElementById("currentlyInPace");
   const open = openVisitsForRoom(STATE.room);
   if (open.length === 0) {
-    listEl.innerHTML = `<p class="empty-hint">No students currently in PACE.</p>`;
+    const isPhysicalRoom = currentRoomConfig()?.isPhysicalRoom !== false;
+    listEl.innerHTML = `<p class="empty-hint">${isPhysicalRoom ? "No students currently in PACE." : "No one currently logged as receiving support."}</p>`;
     return;
   }
   listEl.innerHTML = open.map(v => `
@@ -867,6 +885,14 @@ document.getElementById("scmNoBtn").addEventListener("click", () => setScm(false
 function renderNotesScreen() {
   const noteText = document.getElementById("noteText");
   noteText.value = STATE.notes || "";
+  // PATCH 011: "Other" visits are exactly the ones staff asked to be able
+  // to explain in more detail (Wiggle Room, a classroom check-in, a walk,
+  // etc.), since there's no physical room to imply it — nudge for that
+  // here rather than adding a second required field just for this case.
+  const isPhysicalRoom = currentRoomConfig()?.isPhysicalRoom !== false;
+  noteText.placeholder = isPhysicalRoom
+    ? "Add a brief note about this visit…"
+    : "Describe what happened and where (e.g., Wiggle Room, classroom check-in, a walk)…";
   const errorEl = document.getElementById("notesError");
   if (errorEl) errorEl.classList.add("hidden");
 }
@@ -925,6 +951,7 @@ async function saveLiveVisit() {
   btn.disabled = true;
   btn.textContent = "Starting…";
   try {
+    const isPhysicalRoom = currentRoomConfig()?.isPhysicalRoom !== false;
     await PACE_DATA.createVisit(buildVisitEntry({ open: true }));
     await refreshRoomVisits();
     const studentName = STATE.student.name;
@@ -933,7 +960,7 @@ async function saveLiveVisit() {
     btn.textContent = "START PACE VISIT";
     STATE.saving = false;
     nav("room", "back");
-    showToast(`${studentName} is now in PACE.`);
+    showToast(isPhysicalRoom ? `${studentName} is now in PACE.` : `${studentName}'s support has started.`);
   } catch (err) {
     console.error("PACE live visit start failed:", err);
     STATE.saving = false;

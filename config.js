@@ -88,9 +88,23 @@ const CONFIG = {
   // (paceRoomIdForLabel()) so every internal comparison keeps working on
   // slugs unchanged. demo-data.js mirrors the same id -> label conversion
   // for parity. hallway/color remain presentation-only, never sent anywhere.
+  //
+  // PATCH 011: added "other" — a third, non-physical-room location for
+  // support that never touches a PACE room (Wiggle Room, a classroom
+  // check-in, a walk, etc.), requested by staff whose day often wasn't
+  // being captured at all. Room is a plain text SharePoint column, so a
+  // third label needs no SharePoint schema change. `isPhysicalRoom: false`
+  // is the one flag app.js reads to swap "PACE room"-specific copy (action
+  // captions, the Currently-in-PACE heading/empty-state, the start-visit
+  // toast, the Notes placeholder) for wording that doesn't imply a
+  // physical room — see app.js's currentRoomConfig(). Every other consumer
+  // (recent-activity.js, visit-workflow.js, the room <select>, duplicate-
+  // open-visit protection) already reads CONFIG.ROOMS generically and
+  // needed zero changes for a third entry.
   ROOMS: [
-    { id: "pace-room-1", label: "PACE Room 1", hallway: "Yellow Hall", color: "yellow" },
-    { id: "pace-room-2", label: "PACE Room 2", hallway: "Green Hall",  color: "green"  }
+    { id: "pace-room-1", label: "PACE Room 1", hallway: "Yellow Hall", color: "yellow", isPhysicalRoom: true },
+    { id: "pace-room-2", label: "PACE Room 2", hallway: "Green Hall",  color: "green",  isPhysicalRoom: true },
+    { id: "other", label: "Other", hallway: "Outside PACE Room", color: "gray", isPhysicalRoom: false }
   ],
 
   // Reused verbatim from MAC Walkthrough's PACE_BEHAVIOR_OPTIONS /

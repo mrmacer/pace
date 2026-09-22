@@ -1,18 +1,24 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   TEMPORARY PATCH 003 DIAGNOSTIC — SharePoint field-mapping inspector
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 21, 2026
+// Filename: diagnostic.js
+// Purpose: Temporary, read-only production diagnostic for validating SharePoint column
+//          names, types, and populated/blank status against the PACE Visits list. It
+//          deliberately reports metadata only and must never include tokens, student
+//          names, IDs, emails, or field contents, and must be removed once the live
+//          schema is fully confirmed.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-   Read-only. Uses only existing GRAPH/AUTH infrastructure (no new Graph
-   calls beyond a plain column-list GET, which graph.js doesn't already
-   expose a helper for). Never creates, updates, or deletes anything, never
-   displays a token, and never displays a student name/ID/email or any
-   actual field VALUE — only column metadata and POPULATED/BLANK status.
-
-   TO REMOVE THIS FEATURE ENTIRELY once field mapping is reconciled:
-   delete this file, its <script> tag in index.html, the "Run SharePoint
-   Diagnostic" button + overlay markup in index.html, and the three
-   diagnostic event-listener blocks in app.js (all marked "PATCH 003
-   DIAGNOSTIC").
-   ───────────────────────────────────────────────────────────────────────── */
+// Read-only: uses only existing GRAPH/AUTH infrastructure (no new Graph calls beyond a
+// plain column-list GET, which graph.js doesn't already expose a helper for). Never
+// creates, updates, or deletes anything, never displays a token, and never displays a
+// student name/ID/email or any actual field VALUE -- only column metadata and
+// POPULATED/BLANK status.
+//
+// To remove this feature entirely once field mapping is reconciled: delete this file,
+// its <script> tag in index.html, the "Run SharePoint Diagnostic" button + overlay
+// markup in index.html, and the three diagnostic event-listener blocks in app.js (all
+// marked "PATCH 003 DIAGNOSTIC").
 
 // ROOM-FIELD-NAME PATCH: "Room" added — the user manually confirmed this
 // is the live column's actual display name. "PACE Room"/"Pace Room" stay
@@ -26,6 +32,13 @@ const DIAGNOSTIC_CONCEPTS = [
 ];
 
 const Diagnostic = {
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: run
+  // Description: Fetches the live SharePoint list schema and the most recently submitted
+  //   PACE visit, then reduces both to metadata only (column names/types and
+  //   populated/blank status) for the diagnostic report.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async run() {
     // Defense in depth: GRAPH._get() already throws in demo mode via
     // assertGraphAllowed(), but fail fast and explicitly here too.
@@ -89,6 +102,13 @@ const Diagnostic = {
     return { columns, conceptMap, latestFields, visitCount: visits.length };
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: formatReport
+  // Description: Formats the schema and latest-visit metadata produced by run() into the
+  //   copyable plain-text diagnostic report.
+  // Parameters: object result - the diagnostic result returned by run(), containing
+  //   columns, conceptMap, latestFields, and visitCount - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   formatReport(result) {
     const lines = [];
     lines.push("TEMPORARY PATCH 003 DIAGNOSTIC — IEP_Pace_Visits");

@@ -1,29 +1,41 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — Microsoft Graph client
-
-   Deliberately narrow: this app only ever touches the three lists in
-   CONFIG.LISTS (users, students, paceVisits) — see spec section 29, "Data
-   Separation." No Daily Pulse / Walkthrough / Check-In list is referenced
-   anywhere in this file.
-
-   Field-mapping pattern is copied from MAC Walkthrough's graph.js: callers
-   always write by SharePoint *display* name; mapFields() resolves the
-   internal name live from the list's column schema. Internal names are
-   never hard-coded, per the project's explicit instruction not to invent
-   them.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: graph.js
+// Purpose: Narrow Microsoft Graph client for the three SharePoint lists used by PACE Room
+//          Tracker (users, students, PACE visits), owning authentication transport, list/schema
+//          discovery, display-name field mapping, pagination, and visit CRUD. Callers always
+//          supply SharePoint display names; this module resolves them to internal names from
+//          the live column schema and never hard-codes internal field names, so reads are
+//          converted back to display-name keys and the UI stays independent of SharePoint's
+//          internal naming rules. Every network method calls assertGraphAllowed() before
+//          acquiring a token, so demo mode fails closed at the transport boundary rather than
+//          relying on each caller to remember a mode check.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // Hard safety block (demo mode): every Graph call funnels through _get/
 // _post/_patch below, so guarding those three is a single choke point that
 // covers every higher-level method transitively (getSiteId, getListId,
 // findUserByEmail, savePaceVisit, closePaceVisit, everything) — no call
 // site needs its own check, and none can be added later that forgets one.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: assertGraphAllowed
+// Description: Throws when any code path attempts Microsoft Graph access while the app is
+//              running in demo mode.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function assertGraphAllowed() {
   if (typeof APP_MODE !== "undefined" && APP_MODE === "demo") {
     throw new Error("Demo mode safety block: Microsoft Graph access is disabled.");
   }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: isWritableSharePointField
+// Description: Rejects SharePoint system, read-only, and underscore-prefixed fields before a
+//              write payload is mapped to internal column names.
+// Parameters: string internalName - internal SharePoint column name to check - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function isWritableSharePointField(internalName) {
   const blocked = new Set([
     "id", "ContentType", "Modified", "Created", "Author", "Editor",
@@ -37,6 +49,9 @@ function isWritableSharePointField(internalName) {
   return true;
 }
 
+// Microsoft Graph gateway and SharePoint field-mapping service. Properties: _BASE (Graph API
+// root), _SITE (configured SharePoint site locator), _siteId (cached resolved site id),
+// _listIdCache (list-name to id cache), _schemaCache (list schema cache).
 const GRAPH = {
   _BASE:        "https://graph.microsoft.com/v1.0",
   _SITE:        CONFIG.SITE,
@@ -44,6 +59,13 @@ const GRAPH = {
   _listIdCache: {},
   _schemaCache: {},
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: _get
+  // Description: Performs an authenticated Microsoft Graph GET request and returns the parsed
+  //              JSON response body, throwing when Graph returns a non-2xx status.
+  // Parameters: string path - relative Graph API path without the base URL - input
+  //             Object additionalHeaders - extra request headers to merge in (optional) - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async _get(path, additionalHeaders = {}) {
     assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
@@ -52,12 +74,21 @@ const GRAPH = {
     });
     if (!resp.ok) {
       const body = await resp.text().catch(() => "");
+      // REVIEW: response bodies are useful while diagnosing Graph failures,
+      // but may contain sensitive metadata on a shared kiosk console.
       console.error("Graph GET failed", path, resp.status, body);
       throw new Error(`Graph ${resp.status}: ${body}`);
     }
     return resp.json();
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: _post
+  // Description: Performs an authenticated Microsoft Graph POST request with a JSON body and
+  //              returns the parsed response, throwing when Graph rejects the request.
+  // Parameters: string path - relative Graph API path - input
+  //             Object body - JSON-serializable request body to send - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async _post(path, body) {
     assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
@@ -68,12 +99,20 @@ const GRAPH = {
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
+      // REVIEW: avoid retaining raw Graph error bodies in production logs.
       console.error("Graph POST failed", path, resp.status, text);
       throw new Error(`Graph POST ${resp.status}: ${text}`);
     }
     return resp.json();
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: _patch
+  // Description: Performs an authenticated Microsoft Graph PATCH request, returning the parsed
+  //              response JSON or null on an HTTP 204, and throwing when Graph rejects the patch.
+  // Parameters: string path - relative Graph API path - input
+  //             Object body - JSON-serializable field patch to send - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async _patch(path, body) {
     assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
@@ -84,6 +123,7 @@ const GRAPH = {
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
+      // REVIEW: sanitize this diagnostic payload before production use.
       console.error("Graph PATCH failed", { path, status: resp.status, response: text });
       throw new Error(`Graph PATCH ${resp.status}: ${text}`);
     }
@@ -94,6 +134,12 @@ const GRAPH = {
   // STAFF CORRECTIONS: single-item DELETE. A successful Graph delete is
   // HTTP 204 with no body, so nothing is parsed on success; any non-2xx
   // throws with the status attached (never a silent success).
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: _delete
+  // Description: Performs an authenticated Microsoft Graph DELETE for one list resource,
+  //              throwing (with the HTTP status attached) on any non-2xx response.
+  // Parameters: string path - relative Graph API path of the resource to delete - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async _delete(path) {
     assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
@@ -103,6 +149,7 @@ const GRAPH = {
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
+      // REVIEW: deletion failures should expose status, not raw SharePoint data.
       console.error("Graph DELETE failed", { path, status: resp.status, response: text });
       const error = new Error(`Graph DELETE ${resp.status}`);
       error.status = resp.status;
@@ -111,6 +158,12 @@ const GRAPH = {
     return null;
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getSiteId
+  // Description: Resolves and caches the configured SharePoint site id, reusing the cached
+  //              value on subsequent calls.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getSiteId() {
     if (this._siteId) return this._siteId;
     const data = await this._get(`sites/${this._SITE}`);
@@ -118,6 +171,12 @@ const GRAPH = {
     return data.id;
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getListId
+  // Description: Resolves and caches a SharePoint list id, matching by either its display or
+  //              internal name.
+  // Parameters: string listName - configured SharePoint list name to resolve - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getListId(listName) {
     if (this._listIdCache[listName]) return this._listIdCache[listName];
     const siteId = await this.getSiteId();
@@ -131,6 +190,12 @@ const GRAPH = {
     return match.id;
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getListItems
+  // Description: Reads every item in a list, following Graph's @odata.nextLink pagination until
+  //              exhausted, and returns each row with its stable `id` plus field values.
+  // Parameters: string listName - configured SharePoint list name to read - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getListItems(listName) {
     const siteId = await this.getSiteId();
     const listId = await this.getListId(listName);
@@ -152,6 +217,12 @@ const GRAPH = {
     return items.map(item => ({ id: item.id, ...item.fields }));
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getListSchema
+  // Description: Reads and caches the display-name to internal-name field schema for a list from
+  //              its live SharePoint column definitions.
+  // Parameters: string listName - configured SharePoint list name whose schema to read - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getListSchema(listName) {
     if (this._schemaCache[listName]) return this._schemaCache[listName];
     const siteId = await this.getSiteId();
@@ -163,6 +234,13 @@ const GRAPH = {
     return schema;
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: mapFields
+  // Description: Maps a set of display-name keyed field values to writable live SharePoint
+  //              internal field names, dropping any unmapped or read-only fields.
+  // Parameters: string listName - list whose live column schema should be used - input
+  //             Object displayFields - display-name keyed values to map - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async mapFields(listName, displayFields) {
     const schema = await this.getListSchema(listName);
     const mapped = {};
@@ -176,17 +254,39 @@ const GRAPH = {
     return mapped;
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: createListItem
+  // Description: Creates a new SharePoint list item from a payload of already internal-name
+  //              mapped fields.
+  // Parameters: string listName - configured SharePoint list name to create the item in - input
+  //             Object fields - internal-name keyed field values to write - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async createListItem(listName, fields) {
     const siteId = await this.getSiteId();
     const listId = await this.getListId(listName);
     return this._post(`sites/${siteId}/lists/${listId}/items`, { fields });
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: createMappedListItem
+  // Description: Maps display-name keyed fields to internal names and creates one SharePoint
+  //              list item from the result.
+  // Parameters: string listName - configured SharePoint list name to create the item in - input
+  //             Object displayFields - display-name keyed values to write - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async createMappedListItem(listName, displayFields) {
     const fields = await this.mapFields(listName, displayFields);
     return this.createListItem(listName, fields);
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: updateMappedListItem
+  // Description: Maps display-name keyed fields to internal names and patches one existing
+  //              SharePoint list item with the result.
+  // Parameters: string listName - configured SharePoint list name containing the item - input
+  //             string itemId - SharePoint list item id to patch - input
+  //             Object displayFields - display-name keyed values to write - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async updateMappedListItem(listName, itemId, displayFields) {
     const siteId = await this.getSiteId();
     const listId = await this.getListId(listName);
@@ -194,6 +294,13 @@ const GRAPH = {
     return this._patch(`sites/${siteId}/lists/${listId}/items/${itemId}/fields`, fields);
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: findListItemByDisplayField
+  // Description: Finds the first list item whose mapped display-name field equals a given value.
+  // Parameters: string listName - configured SharePoint list name to search - input
+  //             string displayFieldName - display-name field to compare - input
+  //             * value - value to match against the field, compared as trimmed strings - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async findListItemByDisplayField(listName, displayFieldName, value) {
     const [items, schema] = await Promise.all([this.getListItems(listName), this.getListSchema(listName)]);
     const internalName = schema[displayFieldName];
@@ -201,6 +308,12 @@ const GRAPH = {
     return items.find(item => String(item[internalName] || "").trim() === String(value || "").trim()) || null;
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: findUserByEmail
+  // Description: Finds the approved IEP_Users2 staff row matching an account email address,
+  //              checking several tolerated email field name aliases.
+  // Parameters: string email - account email address to match, case/whitespace-insensitive - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async findUserByEmail(email) {
     const users  = await this.getListItems(CONFIG.LISTS.users);
     const target = String(email || "").toLowerCase().trim();
@@ -223,6 +336,11 @@ const GRAPH = {
   // code, so the new method matches it instead of introducing a second,
   // untested resolution path for the same list. Never reads/returns any
   // email field — callers only ever see name/role/active/id.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getActiveUsersByRole
+  // Description: Returns active IEP_Users2 people whose role matches exactly, sorted by name.
+  // Parameters: string role - role name to match exactly (case-insensitive) - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getActiveUsersByRole(role) {
     const users  = await this.getListItems(CONFIG.LISTS.users);
     const target = String(role || "").trim().toLowerCase();
@@ -243,6 +361,12 @@ const GRAPH = {
 
   // Every list item, mapped back to DISPLAY field names via the schema, so
   // the rest of the app never touches internal SharePoint names.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getPaceVisitsByDisplayName
+  // Description: Reads every PACE visit item and converts its field keys from internal names
+  //              back to display names.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getPaceVisitsByDisplayName() {
     const [items, schema] = await Promise.all([
       this.getListItems(CONFIG.LISTS.paceVisits),
@@ -266,6 +390,12 @@ const GRAPH = {
   // A two-sided range is used instead of string equality because a
   // SharePoint Date column may serialize as either a date or midnight ISO
   // datetime. Paging is still followed, but only within that one day.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getPaceVisitsForDateByDisplayName
+  // Description: Reads only one local calendar day's PACE visits from Graph, using a two-sided
+  //              date-range filter, and converts field keys back to display names.
+  // Parameters: string localDate - local calendar date (YYYY-MM-DD) to filter visits by - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getPaceVisitsForDateByDisplayName(localDate) {
     const date = String(localDate || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("A valid visit date is required.");
@@ -364,6 +494,12 @@ const GRAPH = {
   // mapFields() silently drops whichever keys don't match a real column
   // (a console.warn, nothing more), so only the one real column actually
   // receives this write; the other two are no-ops.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: savePaceVisit
+  // Description: Creates a new PACE visit list item using the live display-name field mapping,
+  //              sending both confirmed and speculative fields (harmlessly dropped if unmapped).
+  // Parameters: Object entry - logical visit entry (room, student, times, reason, etc.) - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async savePaceVisit(entry) {
     const roomValue = paceRoomLabelForId(entry.paceRoom);
     return this.createMappedListItem("IEP_Pace_Visits", {
@@ -400,6 +536,13 @@ const GRAPH = {
   // today's Recent Activity. Uses the same display-name mapping as CREATE,
   // so only confirmed writable columns are patched; missing logical fields
   // are dropped by mapFields() exactly as they are on initial save.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: updatePaceVisit
+  // Description: Applies a same-day correction patch to an existing PACE visit, sending only the
+  //              fields present on `entry` so omitted fields are left untouched.
+  // Parameters: string itemId - SharePoint list item id of the visit to patch - input
+  //             Object entry - partial logical visit entry with only the changed fields - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async updatePaceVisit(itemId, entry) {
     if (!itemId) throw new Error("A SharePoint visit item is required for editing.");
     // CURRENT-PATCH: label, not slug — see savePaceVisit() above. Same-day
@@ -444,6 +587,12 @@ const GRAPH = {
   // any search/bulk criteria. SharePoint list-item ids are integers, so
   // anything else (empty, a path fragment, a GUID) is refused before any
   // network call — an odd value can never widen the request URL.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: deletePaceVisit
+  // Description: Deletes exactly one PACE visit after validating that its item id is a numeric
+  //              SharePoint list-item id.
+  // Parameters: string itemId - SharePoint list item id of the visit to delete - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async deletePaceVisit(itemId) {
     const id = String(itemId ?? "").trim();
     if (!/^\d+$/.test(id)) throw new Error("A valid SharePoint visit item is required for deletion.");
@@ -455,10 +604,24 @@ const GRAPH = {
 
   // Legacy open-visit close path — Recent Activity corrections use the
   // separate full-field updatePaceVisit() method above.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: closePaceVisit
+  // Description: Retains the legacy minimal close operation for open visits, patching only the
+  //              Time Out field.
+  // Parameters: string itemId - SharePoint list item id of the visit to close - input
+  //             string timeOut - time-out value to write - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async closePaceVisit(itemId, timeOut) {
     return this.updateMappedListItem("IEP_Pace_Visits", itemId, { "Time Out": timeOut });
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: completePaceVisit
+  // Description: Completes an open visit by patching completion fields (time out, duration,
+  //              interventions, SCM used, notes) on the same row.
+  // Parameters: string itemId - SharePoint list item id of the visit to complete - input
+  //             Object entry - logical completion fields to apply - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async completePaceVisit(itemId, entry) {
     if (!itemId) throw new Error("A SharePoint visit item is required for completion.");
     return this.updateMappedListItem("IEP_Pace_Visits", itemId, {

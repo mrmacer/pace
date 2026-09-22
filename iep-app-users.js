@@ -1,32 +1,17 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   IEP Skook Access Model v1 — IEP_App_Users reader (PATCH A)
-
-   NEW authorization layer. IEP_Users2 (auth.js) remains this app's identity
-   / Active / Role source — this file does not touch it and does not change
-   anything AUTH already does.
-
-   IEP_App_Users is a separate, currently-unpopulated SharePoint list that
-   holds the explicit per-application permission flags (Daily Pulse / PACE /
-   Walkthrough / Admin Panel) plus Teacher/Classroom and Display Name. Email
-   is the join key between the signed-in Microsoft account, IEP_Users2, and
-   this list. Internal SharePoint field names are never hard-coded — this
-   file resolves them live via GRAPH.getListSchema(), the same pattern every
-   other list read in this app already uses (see roster.js, graph.js).
-
-   THIS PATCH DOES NOT CHANGE APP BEHAVIOR. Nothing in app.js or auth.js
-   calls APP_USERS yet — this file only defines the reader so a later patch
-   (the PACE gate) can call it. Loading this script has zero runtime effect
-   until something invokes APP_USERS.resolve().
-
-   MIGRATION MODE (temporary — see ACCESS_MODEL_CONFIG.ENFORCE_APP_USERS
-   below): IEP_App_Users is not populated yet. While ENFORCE_APP_USERS is
-   false, a later patch's gate is expected to treat "no matching row" as
-   "fall back to this app's existing IEP_Users2-based authorization"
-   instead of locking everyone out. Flip ENFORCE_APP_USERS to true only
-   once every active staff member has a row in IEP_App_Users — after that,
-   a missing row means denied, full stop, no fallback. This flag is
-   intentionally NOT exposed in any UI — code-only, changed by a developer.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 31, 2026
+// Filename: iep-app-users.js
+// Purpose: Reads explicit per-application permissions from IEP_App_Users and converts them
+//          into a small authorization decision model, separate from auth.js (which handles
+//          identity and active-staff status only). IEP_App_Users is joined to the signed-in
+//          user by Email, and internal SharePoint field names are resolved live via
+//          GRAPH.getListSchema() rather than hard-coded. ACCESS_MODEL_CONFIG.ENFORCE_APP_USERS
+//          is a temporary migration switch: while false, a missing IEP_App_Users row falls
+//          back to this app's pre-existing authorization instead of denying access; leaving
+//          it false after migration is an access-control bypass, so it must be flipped to
+//          true only once every active staff member has a row in IEP_App_Users.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const ACCESS_MODEL_CONFIG = {
   // TEMPORARY MIGRATION SWITCH.
@@ -34,9 +19,18 @@ const ACCESS_MODEL_CONFIG = {
   //           to this app's pre-existing authorization behavior.
   //   true  = ENFORCED MODE  — no IEP_App_Users row means denied, always.
   // Flip once IEP_App_Users is confirmed populated for all active staff.
+  // REVIEW: leaving this false permits the legacy authorization fallback;
+  // switch only after every active staff member has an IEP_App_Users row.
   ENFORCE_APP_USERS: false
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: normalizeAppUsersBoolean
+// Description: Normalizes an application permission value from its various SharePoint
+//              representations (boolean, number, or string) into a real boolean.
+// Parameters: any value - raw permission value read from SharePoint - input
+//             boolean defaultValue - value to return when value is empty (default false) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function normalizeAppUsersBoolean(value, defaultValue = false) {
   if (value === undefined || value === null || value === "") return defaultValue;
   if (typeof value === "boolean") return value;
@@ -44,6 +38,10 @@ function normalizeAppUsersBoolean(value, defaultValue = false) {
   return ["yes", "true", "1"].includes(String(value).trim().toLowerCase());
 }
 
+// Application-specific permission reader and decision facade.
+// _row: matched IEP_App_Users row, if one exists (else null).
+// _checked: whether resolve() has run for this session.
+// lookupError: error message that caused a fail-closed decision, if any.
 const APP_USERS = {
   _row: null,
   _checked: false,
@@ -53,6 +51,12 @@ const APP_USERS = {
   // insensitive). Returns null — and records lookupError — on any Graph or
   // list failure; a failed lookup must never be treated as a match by a
   // caller. Demo mode never touches Graph at all, mirroring auth.js/graph.js.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: resolve
+  // Description: Resolves one signed-in email to its explicit IEP_App_Users permission row,
+  //              recording the matched row (or a lookup error) for later use by decide().
+  // Parameters: string email - signed-in user's email to match against IEP_App_Users - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async resolve(email) {
     this._checked = true;
     this._row = null;
@@ -88,8 +92,19 @@ const APP_USERS = {
     }
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: found
+  // Description: Reports whether resolve() found a matching IEP_App_Users row.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   get found() { return this._row !== null; },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: permissionsFromRow
+  // Description: Converts one IEP_App_Users row into the app's boolean permission model
+  //              (Daily Pulse / PACE / Walkthrough / Admin Panel).
+  // Parameters: object row - matched IEP_App_Users row, or null - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   permissionsFromRow(row) {
     if (!row) return null;
     return {
@@ -100,9 +115,32 @@ const APP_USERS = {
     };
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: permissions
+  // Description: Returns the boolean permission object for the currently matched row.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   get permissions()      { return this.permissionsFromRow(this._row); },
+
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: teacherClassroom
+  // Description: Returns the matched row's Teacher/Classroom field, or an empty string.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   get teacherClassroom() { return this._row ? String(this._row["Teacher/Classroom"] || "").trim() : ""; },
+
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: displayName
+  // Description: Returns the matched row's Display Name field, or an empty string.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   get displayName()      { return this._row ? String(this._row["Display Name"] || "").trim() : ""; },
+
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: role
+  // Description: Returns the matched row's Role field, or an empty string.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   get role()             { return this._row ? String(this._row["Role"] || "").trim() : ""; },
 
   // PATCH C: generic authorization decision, callable after resolve() has
@@ -111,6 +149,14 @@ const APP_USERS = {
   // legacyAllowed. No row falls back to legacyAllowed (this app's own
   // pre-existing behavior) unless ENFORCE_APP_USERS is on. A failed lookup
   // (this.lookupError set) always denies — never falls back to legacyAllowed.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: decide
+  // Description: Applies explicit IEP_App_Users permissions, migration fallback, and
+  //              lookup-failure denial to produce a single allow/deny authorization decision.
+  // Parameters: string permissionKey - permission flag name to check (e.g. "PACE") - input
+  //             boolean legacyAllowed - this app's pre-existing authorization result,
+  //                                     used as the migration-mode fallback - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   decide(permissionKey, legacyAllowed) {
     if (this.lookupError) return { allowed: false, reason: "app-users-lookup-failed" };
     if (this._row) {

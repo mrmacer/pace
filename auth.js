@@ -1,23 +1,28 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — Authentication (MSAL / Entra)
-
-   Reuses the exact Entra app registration (clientId/authority) already
-   proven in MAC Walkthrough — same tenant, same "IEP Skook" backend. The
-   redirectUri is computed from window.location.origin so this works from
-   whatever origin the kiosk iPad actually loads from.
-
-   MANUAL CONFIG REQUIRED: an IU29 admin must add this app's deployed
-   origin (and a localhost origin for local testing) to the Entra app
-   registration's "Single-page application" redirect URI allow-list, or
-   sign-in will fail with an AADSTS50011 redirect mismatch. This is the
-   same app registration MAC Walkthrough uses, so it is safe to extend, not
-   replace.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: auth.js
+// Purpose: Encapsulates MSAL initialization, Entra redirect sign-in, silent Graph token
+//          acquisition, IEP_Users2 staff verification, and sign-out cleanup for the PACE Room
+//          Tracker kiosk app. Authentication proves Microsoft identity, while the active
+//          IEP_Users2 lookup supplies the application's staff gate; demo mode must never
+//          construct MSAL, process a redirect, or request a token. Reuses the same Entra app
+//          registration already proven in MAC Walkthrough (same tenant, same "IEP Skool"
+//          backend), computing redirectUri from window.location.origin so sign-in works from
+//          whatever origin the kiosk iPad actually loads from. MANUAL CONFIG REQUIRED: an IU29
+//          admin must add this app's deployed origin (and a localhost origin for local
+//          testing) to the Entra app registration's "Single-page application" redirect URI
+//          allow-list, or sign-in will fail with an AADSTS50011 redirect mismatch — this is
+//          the same app registration MAC Walkthrough uses, so it is safe to extend, not
+//          replace.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const MSAL_CONFIG = {
   auth: {
     clientId: "145a3fc7-5cff-4d03-96c7-577e17980110",
     authority: "https://login.microsoftonline.com/3276761c-22db-462b-a930-172d155bd795",
+    // REVIEW: keep redirect origins restricted in the Entra registration;
+    // this value is intentionally derived from the current host.
     redirectUri: window.location.origin
   },
   cache: {
@@ -28,6 +33,9 @@ const MSAL_CONFIG = {
   }
 };
 
+// Authentication/session facade used by app.js and GRAPH. Tracks the MSAL client (_client),
+// the signed-in Microsoft account, the resolved IEP_Users2 staff identity (staffId, staffName,
+// role), and the latest staff verification failure (lookupError).
 const AUTH = {
   _client:     null,
   account:     null,
@@ -36,6 +44,13 @@ const AUTH = {
   role:        null,
   lookupError: null,
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: init
+  // Description: Initializes the MSAL client, restores any signed-in Microsoft account from a
+  //              redirect or cache, and loads the corresponding staff record; does nothing in
+  //              demo mode.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async init() {
     // Demo mode never touches Microsoft auth at all — no MSAL client is
     // constructed, no redirect handling, no token/account state. app.js's
@@ -69,6 +84,13 @@ const AUTH = {
   // resolve to an Active row in IEP_Users2 before the app is usable. This
   // keeps the append-only PACE workflow limited to approved IU29 staff
   // (spec section 19/22), reusing proven logic rather than a new scheme.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: loadStaffFromSharePoint
+  // Description: Resolves the signed-in account's email against IEP_Users2 via Graph and
+  //              requires an Active staff row before granting access; sets staffId/staffName/
+  //              role on success or lookupError on failure.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async loadStaffFromSharePoint() {
     const email = (this.account.username || "").toLowerCase().trim();
     try {
@@ -108,6 +130,12 @@ const AUTH = {
   get isUnauthorized()  { return this.account !== null && this.staffId === null; },
   get displayName()     { return this.account?.name || this.account?.username || ""; },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: acquireGraphToken
+  // Description: Silently acquires a Microsoft Graph access token for the signed-in account,
+  //              falling back to an interactive redirect if silent acquisition fails.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async acquireGraphToken() {
     // Belt-and-suspenders: GRAPH's own assertGraphAllowed() already blocks
     // demo mode before this could ever be reached, but never request a
@@ -125,10 +153,22 @@ const AUTH = {
     }
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: login
+  // Description: Starts the Entra ID redirect sign-in flow requesting the app's required Graph
+  //              scopes.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   login() {
     this._client.loginRedirect({ scopes: ["User.Read", "Sites.ReadWrite.All"] });
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: _clearLocalSessionState
+  // Description: Removes app-owned keys (last room, visit context) from localStorage while
+  //              leaving unrelated stored settings untouched.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   _clearLocalSessionState() {
     if (typeof localStorage === "undefined" || typeof CONFIG === "undefined") return;
     const keys = CONFIG.STORAGE_KEYS || {};
@@ -137,6 +177,12 @@ const AUTH = {
       .forEach(key => localStorage.removeItem(key));
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: logout
+  // Description: Clears in-memory authentication and staff state, removes app-owned local
+  //              session keys, and redirects through MSAL sign-out; no-ops in demo mode.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   logout() {
     // Demo mode never constructs an MSAL client and must not clear its
     // simulated data or attempt a Microsoft redirect.

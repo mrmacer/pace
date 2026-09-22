@@ -1,12 +1,17 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — App controller
-   Horizontal-panel kiosk workflow: Home → Room → Specialist → Student
-   (search-first) → Teacher Came From → Visit Info → Reason → Support →
-   SCM → Notes → Confirm → Save, plus Room's own Exit and Recent panels.
-   Save returns to Student Search (not Room) — see the save handler.
-   PATCH 006 removed the old homeroom-Teacher-grouped Student screen; see
-   README.md for the phase-by-phase build notes.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: app.js
+// Purpose: Browser-side controller for the PACE Room Tracker kiosk app. Drives the horizontal-
+//          panel workflow (Home → Room → Specialist → Student search → Teacher Came From →
+//          Visit Info → Reason → Support → SCM → Notes → Confirm → Save, plus Room's own Exit
+//          and Recent panels), owns screen navigation and the transient STATE object, and
+//          translates user actions into a provider-neutral visit object. Talks to the backend
+//          only through PACE_DATA so demo mode and production mode share identical UI behavior.
+//          Save returns to Student Search (not Room) so the same specialist can log another
+//          visit right away; see the save handler. PATCH 006 removed the old homeroom-Teacher-
+//          grouped Student screen — see README.md for the phase-by-phase build notes.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 /* ── Screen navigation (deterministic slide, no history stack needed —
    every call states its own direction) ─────────────────────────────────── */
@@ -15,6 +20,13 @@ const SCREENS = {};
 document.querySelectorAll(".screen").forEach(el => { SCREENS[el.dataset.screen] = el; });
 let currentScreenName = "signin";
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: nav
+// Description: Activates one screen and slides the previous screen out of view.
+// Parameters: string name      - data-screen value of the destination panel - input
+//             string direction - "forward" or "back" animation direction (default "forward") -
+//                                 input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function nav(name, direction = "forward") {
   const next = SCREENS[name];
   const current = SCREENS[currentScreenName];
@@ -72,6 +84,12 @@ document.querySelectorAll("[data-nav]").forEach(btn => {
 /* ── Toast ────────────────────────────────────────────────────────────── */
 
 let toastTimer = null;
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: showToast
+// Description: Displays a short success or error message without interrupting the workflow.
+// Parameters: string msg  - message text to display - input
+//             string kind - "ok" or "error" styling variant (default "ok") - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function showToast(msg, kind = "ok") {
   const el = document.getElementById("toast");
   el.textContent = msg;
@@ -83,6 +101,11 @@ function showToast(msg, kind = "ok") {
 
 /* ── Time helpers ─────────────────────────────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: nowHHMM
+// Description: Returns the current local time in the HTML time-input format.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function nowHHMM() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -92,6 +115,11 @@ function nowHHMM() {
 // calendar date in the evening (e.g. 8:30 PM Eastern is already past
 // midnight UTC). Build the date from local getters instead so "today"
 // always means the staff member's local today, never a UTC-shifted one.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: todayISODate
+// Description: Returns today's local calendar date as YYYY-MM-DD.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function todayISODate() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -100,6 +128,11 @@ function todayISODate() {
 // (never `new Date("YYYY-MM-DD")`, which parses as UTC midnight and can
 // print the wrong day in negative-UTC-offset timezones — the same class of
 // bug todayISODate() above was fixed for).
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: fmtLongDate
+// Description: Formats an ISO date for human-readable confirmation screens.
+// Parameters: string dateStr - ISO "YYYY-MM-DD" date to format - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function fmtLongDate(dateStr) {
   const d = dateOnly(dateStr);
   if (!d) return "—";
@@ -109,9 +142,19 @@ function fmtLongDate(dateStr) {
 // SharePoint may hand back "Date" as a bare "YYYY-MM-DD" (what this app
 // writes) or as a full ISO datetime (if the column is a true Date/Time
 // field) — normalize to just the date part before comparing/parsing it.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: dateOnly
+// Description: Extracts the date portion from a SharePoint or local date value.
+// Parameters: string value - raw date or datetime value from the provider - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function dateOnly(value) {
   return String(value || "").slice(0, 10);
 }
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: fmt12h
+// Description: Converts a 24-hour HH:MM value to a compact local 12-hour label.
+// Parameters: string hhmm - 24-hour "HH:MM" time value - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function fmt12h(hhmm) {
   if (!hhmm || !hhmm.includes(":")) return "—";
   let [h, m] = hhmm.split(":").map(Number);
@@ -121,6 +164,12 @@ function fmt12h(hhmm) {
 }
 // Elapsed minutes between an "HH:MM" time-in (assumed today, or the given
 // date) and now. Handles the rare midnight-crossing open visit gracefully.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: elapsedMinutesSince
+// Description: Calculates elapsed minutes from a visit start until the current local time.
+// Parameters: string dateStr - visit date, or empty to assume today - input
+//             string hhmm    - "HH:MM" start time - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function elapsedMinutesSince(dateStr, hhmm) {
   if (!hhmm) return 0;
   const [h, m] = hhmm.split(":").map(Number);
@@ -131,6 +180,12 @@ function elapsedMinutesSince(dateStr, hhmm) {
   if (diff < 0) diff += 24 * 60;
   return diff;
 }
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: minutesBetween
+// Description: Calculates the duration between two same-day HH:MM values.
+// Parameters: string hhmmIn  - "HH:MM" start time - input
+//             string hhmmOut - "HH:MM" end time - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function minutesBetween(hhmmIn, hhmmOut) {
   const [ih, im] = hhmmIn.split(":").map(Number);
   const [oh, om] = hhmmOut.split(":").map(Number);
@@ -146,15 +201,26 @@ function minutesBetween(hhmmIn, hhmmOut) {
 // deliberately same-day-only per spec: a Time Out at or before Time In is
 // invalid, not a visit that "wrapped around," so this returns null rather
 // than guessing.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: visitDurationMinutes
+// Description: Returns a valid visit duration or null when the time pair is incomplete/invalid.
+// Parameters: string timeIn  - "HH:MM" visit start time - input
+//             string timeOut - "HH:MM" visit end time - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function visitDurationMinutes(timeIn, timeOut) {
   return PACE_VISIT_WORKFLOW.durationMinutes(timeIn, timeOut);
 }
 
 /* ── App state ────────────────────────────────────────────────────────── */
 
+// Mutable state for the currently visible room and visit workflow. The object is intentionally
+// centralized because the UI is implemented as multiple static panels rather than a component
+// framework: a property is changed by event handlers and read by render functions; resetTrip()
+// clears visit-specific fields between entries while preserving the selected room and the
+// sticky specialist selection.
 const STATE = {
-  room: null,
-  paceVisits: [],       // cached today's IEP_Pace_Visits rows (display-name keyed)
+  room: null,            // Internal room id selected on the Home screen.
+  paceVisits: [],        // Cached today's IEP_Pace_Visits rows (display-name keyed).
   // PATCH 004: intentionally separate from AUTH's authenticated Microsoft
   // identity — staffMembers is the selected Behavior Specialist(s) (PATCH
   // 005: loaded dynamically from IEP_Users2, see pace-data.js's
@@ -165,7 +231,7 @@ const STATE = {
   // PATCH 010: one or more — was a single string (STATE.staffMember)
   // before multi-select. See README "PATCH 010" for the full writeup.
   staffMembers: [],
-  student: null,         // roster entry
+  student: null,         // Normalized roster record selected for the visit.
   // PATCH 006: who the student was physically with immediately before
   // this PACE visit — NOT the roster's homeroom `student.teacher` (that's
   // preserved on the roster object but no longer drives navigation; see
@@ -173,30 +239,35 @@ const STATE = {
   // homeroom-grouping STATE.teacher (removed this patch), so the two
   // concepts can never be confused.
   cameFromTeacher: null,
-  reasons: [],
-  supports: [],
-  scmUsed: null,
-  notes: "",
-  timeIn: "",
+  reasons: [],            // Selected behavior/reason labels.
+  supports: [],           // Selected intervention/support labels.
+  scmUsed: null,          // Explicit SCM answer; null means unanswered.
+  notes: "",              // Required completion note, when applicable.
+  timeIn: "",             // Local HH:MM start time.
   timeOut: "",  // PATCH 001: collected on the Visit Info screen, before save
-  date: "",
-  submissionId: null,
-  workflowMode: null,
-  completionTarget: null,
-  editingVisitId: null,
-  editingOriginalDate: "",
-  editingRoom: "",
+  date: "",               // Local YYYY-MM-DD visit date.
+  submissionId: null,     // Stable id used to protect retries.
+  workflowMode: null,     // One of PACE_VISIT_WORKFLOW.MODES.
+  completionTarget: null, // Open row being completed.
+  editingVisitId: null,   // SharePoint/demo id being edited.
+  editingOriginalDate: "", // Original date captured at edit start.
+  editingRoom: "",        // Original/internal room id for the edit.
   editOriginal: null,    // STAFF CORRECTIONS: values shown when the edit began; the baseline for "what changed"
   deleteTarget: null,    // STAFF CORRECTIONS: the Recent Activity visit awaiting delete confirmation
-  deleting: false,
-  saving: false,
-  exitTarget: null,      // the open-visit row being closed
-  duplicateTarget: null  // the open-visit row that blocked a new entry
+  deleting: false,        // Prevents duplicate delete submissions.
+  saving: false,          // Prevents duplicate create/update submissions.
+  exitTarget: null,       // the open-visit row being closed
+  duplicateTarget: null   // the open-visit row that blocked a new entry
 };
 
 // Clears everything specific to ONE visit-in-progress. Deliberately does
 // NOT touch STATE.staffMembers (sticky across a room session — see STATE
 // declaration above) or STATE.room.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: resetTrip
+// Description: Clears transient workflow state while preserving the selected room.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function resetTrip() {
   STATE.student = null;
   STATE.cameFromTeacher = null;
@@ -218,14 +289,29 @@ function resetTrip() {
   STATE.duplicateTarget = null;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: isEditingVisit
+// Description: Reports whether the workflow is editing an existing completed visit.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function isEditingVisit() {
   return Boolean(STATE.editingVisitId);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: isLiveStart
+// Description: Reports whether the current workflow creates an open live visit.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function isLiveStart() {
   return STATE.workflowMode === PACE_VISIT_WORKFLOW.MODES.LIVE_START;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: isCompletingVisit
+// Description: Reports whether the current workflow is completing an existing open visit.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function isCompletingVisit() {
   return STATE.workflowMode === PACE_VISIT_WORKFLOW.MODES.COMPLETING;
 }
@@ -236,11 +322,21 @@ function isCompletingVisit() {
 // re-evaluated from the state boot() already resolved. It is deliberately
 // NOT a role check: any PACE-authorized staff member may correct a visit.
 // Demo mode has no accounts and touches only local fake data.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: isPaceAuthorized
+// Description: Returns whether the authenticated staff member passed the PACE access gate.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function isPaceAuthorized() {
   if (APP_MODE === "demo") return true;
   return AUTH.isAuthenticated && APP_USERS.decide("PACE", true).allowed;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: beginVisitWorkflow
+// Description: Starts a new live-start or completed-entry workflow from the room screen.
+// Parameters: string mode - workflow mode to start (see PACE_VISIT_WORKFLOW.MODES) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function beginVisitWorkflow(mode) {
   resetTrip();
   STATE.workflowMode = mode;
@@ -250,6 +346,11 @@ function beginVisitWorkflow(mode) {
 // "Remember last room" uses a demo-specific key in demo mode (spec: keep
 // simulated state fully separate from anything a production deployment
 // would persist), and the real key otherwise.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: roomStorageKey
+// Description: Returns the local-storage key used to remember this device's last room.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function roomStorageKey() {
   return APP_MODE === "demo" ? DEMO_CONFIG.roomStorageKey : CONFIG.STORAGE_KEYS.LAST_ROOM;
 }
@@ -260,6 +361,11 @@ function roomStorageKey() {
 // the other three apps in the suite). Used both for "no active IEP_Users2
 // record" and "IEP_App_Users PACE = No / lookup failed" — both are signed
 // in, both stop before any room/visit data loads.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: showUnauthorized
+// Description: Shows the authorization failure panel and its user-facing explanation.
+// Parameters: string message - user-facing explanation of the access denial - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function showUnauthorized(message) {
   document.getElementById("unauthorizedMsg").textContent = message;
   const signedInAs = AUTH.staffName || AUTH.displayName || "";
@@ -268,6 +374,15 @@ function showUnauthorized(message) {
   nav("unauthorized", "forward");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: boot
+// Description: Initializes the application and chooses its initial authenticated screen. In
+//              production this initializes MSAL, verifies the staff directory record, resolves
+//              the optional application-permission record, and loads the roster. In demo mode
+//              startDemoMode() is used instead, which avoids authentication and all Microsoft
+//              network access. Errors are converted into the unauthorized/loading UI state.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function boot() {
   if (APP_MODE === "demo") {
     await startDemoMode();
@@ -333,6 +448,11 @@ async function boot() {
 // Demo mode entry point: no MSAL, no Graph, no sign-in screen at all —
 // straight to Room selection (or straight into the last-used room) with a
 // fake staff identity already attached to STATE for "Submitted By".
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: startDemoMode
+// Description: Initializes the local-only demo provider and enters the home panel.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function startDemoMode() {
   document.body.classList.add("demo-mode");
   document.getElementById("demoBanner").classList.remove("hidden");
@@ -365,10 +485,22 @@ document.querySelectorAll(".room-card").forEach(btn => {
 // the selected room. Centralizes the one lookup every "is this a physical
 // PACE room, or the non-room 'Other' location" copy decision below reads,
 // rather than repeating `CONFIG.ROOMS.find(...)` at each call site.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: currentRoomConfig
+// Description: Returns the configured metadata for the currently selected room.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function currentRoomConfig() {
   return CONFIG.ROOMS.find(r => r.id === (STATE.editingRoom || STATE.room));
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: enterRoom
+// Description: Selects a room and opens its operational workspace. Persists the selected room
+//              and updates all room-specific labels before loading its open visits.
+// Parameters: string roomId    - internal room id from CONFIG.ROOMS - input
+//             string direction - "forward" or "back" screen transition direction - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function enterRoom(roomId, direction) {
   STATE.room = roomId;
   // PATCH 004: a (re-)entered room is a fresh session — re-confirm the
@@ -401,12 +533,22 @@ async function enterRoom(roomId, direction) {
 // Keeps every `.room-badge` element (one per workflow screen) in sync with
 // the currently selected room — "PACE ROOM 1 · YELLOW HALL" — a single
 // function driving every instance rather than per-screen logic.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: updateRoomBadges
+// Description: Updates room labels and contextual wording across all workflow panels.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function updateRoomBadges() {
   const room = CONFIG.ROOMS.find(r => r.id === STATE.room);
   const text = room ? `${room.label.toUpperCase()} · ${room.hallway.toUpperCase()}` : "";
   document.querySelectorAll(".room-badge").forEach(el => { el.textContent = text; });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: refreshRoomVisits
+// Description: Loads today's open visits for the selected room from the active provider.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function refreshRoomVisits() {
   const listEl = document.getElementById("currentlyInPace");
   listEl.innerHTML = `<p class="empty-hint">Loading…</p>`;
@@ -420,10 +562,20 @@ async function refreshRoomVisits() {
   renderCurrentlyInPace();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openVisitsForRoom
+// Description: Filters the current visit cache to open visits belonging to one room.
+// Parameters: string roomId - internal room id to filter open visits for - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function openVisitsForRoom(roomId) {
   return PACE_VISIT_WORKFLOW.openForRoom(STATE.paceVisits, roomId);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderCurrentlyInPace
+// Description: Renders open visits and their same-row completion controls.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderCurrentlyInPace() {
   const listEl = document.getElementById("currentlyInPace");
   const open = openVisitsForRoom(STATE.room);
@@ -471,6 +623,12 @@ document.getElementById("logCompletedVisitBtn").addEventListener("click", () => 
 // same caching pattern as cachedStudents below.
 let cachedSpecialists = [];
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openSpecialistScreen
+// Description: Loads available specialists and opens the multi-select specialist panel.
+// Parameters: boolean preserveTrip - keep in-progress visit state instead of resetting it
+//                                    (default false) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function openSpecialistScreen({ preserveTrip = false } = {}) {
   if (!preserveTrip) resetTrip(); // new visit; edit mode preloads and preserves the existing row
   document.querySelector('[data-screen="specialist"] .btn-back').dataset.nav = isEditingVisit() ? "recent" : "room";
@@ -492,6 +650,11 @@ async function openSpecialistScreen({ preserveTrip = false } = {}) {
 // selectSpecialist()). Any previously-selected name not present in the
 // freshly loaded live list (e.g. picked, then that person went inactive)
 // is still shown so a return visit to this screen doesn't silently drop it.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderSpecialistGrid
+// Description: Renders selectable specialists and preserves the current selections.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderSpecialistGrid() {
   const grid = document.getElementById("specialistGrid");
   const missing = STATE.staffMembers.filter(name => !cachedSpecialists.includes(name));
@@ -509,6 +672,11 @@ function renderSpecialistGrid() {
   updateSpecialistContinueState();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: updateSpecialistContinueState
+// Description: Enables specialist continuation only when at least one specialist is selected.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function updateSpecialistContinueState() {
   const count = STATE.staffMembers.length;
   document.getElementById("specialistSelectedCount").textContent =
@@ -516,6 +684,11 @@ function updateSpecialistContinueState() {
   document.getElementById("specialistContinueBtn").disabled = count === 0;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: toggleSpecialist
+// Description: Adds or removes one specialist from the current visit.
+// Parameters: string name - specialist name to toggle in STATE.staffMembers - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function toggleSpecialist(name) {
   const idx = STATE.staffMembers.indexOf(name);
   if (idx === -1) STATE.staffMembers.push(name); else STATE.staffMembers.splice(idx, 1);
@@ -545,10 +718,20 @@ let cachedStudents = [];
 // Lowercase, strip punctuation ("Ja'de" still matches "jade"), collapse to
 // a plain space-joined string — used by Teacher Came From search. Student
 // search uses the identical rule via PACE_STUDENT_SELECT.normalize().
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: normalizeSearchText
+// Description: Normalizes user search text for case-insensitive matching.
+// Parameters: string str - raw search text to normalize - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function normalizeSearchText(str) {
   return String(str || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openStudentScreen
+// Description: Loads the eligible roster and opens the search-first student panel.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function openStudentScreen() {
   document.getElementById("specialistContextLine").textContent = STATE.staffMembers.join(", ");
   document.getElementById("studentSearch").value = "";
@@ -567,15 +750,30 @@ async function openStudentScreen() {
 // The card label is presentation only ("Last, First" when the roster has
 // separate name fields); the student's identity/value remains s.name,
 // resolved by id in selectStudent() exactly as before.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: studentCardHtml
+// Description: Builds the safe button markup for one eligible student.
+// Parameters: Object s - roster student record to render - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function studentCardHtml(s) {
   return `<button class="student-card${STATE.student?.id === s.id ? " selected" : ""}" data-student-id="${escHtml(s.id)}">${escHtml(PACE_STUDENT_SELECT.displayLabel(s))}</button>`;
 }
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: wireStudentCards
+// Description: Connects rendered student buttons to student selection handling.
+// Parameters: Element grid - container holding rendered student-card buttons - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function wireStudentCards(grid) {
   grid.querySelectorAll(".student-card").forEach(btn => {
     btn.addEventListener("click", () => selectStudent(btn.dataset.studentId));
   });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderStudentGrid
+// Description: Renders the complete eligible roster, optionally filtered by search text.
+// Parameters: string filter - search text to filter the roster by (default "") - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderStudentGrid(filter = "") {
   const grid = document.getElementById("studentGrid");
   document.getElementById("specialistContextLine").textContent = STATE.staffMembers.join(", ");
@@ -597,6 +795,11 @@ function renderStudentGrid(filter = "") {
 
 document.getElementById("studentSearch").addEventListener("input", e => renderStudentGrid(e.target.value));
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: selectStudent
+// Description: Stores the selected student and advances or blocks on duplicate-open checks.
+// Parameters: string studentId - id of the selected roster student - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function selectStudent(studentId) {
   const student = cachedStudents.find(s => s.id === studentId);
   if (!student) return;
@@ -643,6 +846,11 @@ function selectStudent(studentId) {
 
 let cachedCameFromTeachers = [];
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openCameFromScreen
+// Description: Loads teacher-origin options and opens the Teacher Came From panel.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function openCameFromScreen() {
   document.getElementById("cameFromGrid").innerHTML = `<p class="empty-hint">Loading…</p>`;
   document.getElementById("cameFromSearch").value = "";
@@ -658,6 +866,11 @@ async function openCameFromScreen() {
   renderCameFromGrid();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderCameFromGrid
+// Description: Renders searchable teacher-origin choices plus the manual-entry option.
+// Parameters: string filter - search text to filter teacher options by (default "") - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderCameFromGrid(filter = "") {
   const grid = document.getElementById("cameFromGrid");
   const q = normalizeSearchText(filter);
@@ -686,6 +899,11 @@ function renderCameFromGrid(filter = "") {
 
 document.getElementById("cameFromSearch").addEventListener("input", e => renderCameFromGrid(e.target.value));
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: selectCameFromTeacher
+// Description: Stores the selected teacher origin and advances to visit details.
+// Parameters: string name - selected or manually entered teacher name - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function selectCameFromTeacher(name) {
   STATE.cameFromTeacher = name;
   if (isLiveStart()) {
@@ -712,6 +930,12 @@ document.getElementById("dupViewBtn").addEventListener("click", () => {
 
 /* ── VISIT INFO: date / time in / time out (PATCH 001) ────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openReasonScreen
+// Description: Opens the behavior/reason multi-select panel for the current visit.
+// Parameters: string direction - "forward" or "back" screen transition direction (default
+//                                 "forward") - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function openReasonScreen(direction = "forward") {
   document.querySelector('[data-screen="reason"] .btn-back').dataset.nav = isLiveStart() ? "cameFrom" : "visitinfo";
   document.getElementById("reasonNextBtn").textContent = isLiveStart() ? "Next" : "Next";
@@ -724,6 +948,11 @@ function openReasonScreen(direction = "forward") {
 // Student or backward from Reason — so nothing is ever silently reset by
 // navigating. Re-validates on every input change so the error clears the
 // moment the values become valid again, without waiting for a Next tap.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderVisitInfo
+// Description: Hydrates and renders date/time fields for a new or edited visit.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderVisitInfo() {
   document.getElementById("visitStudentName").textContent = STATE.student?.name || "";
   const dateInput = document.getElementById("visitDateInput");
@@ -751,6 +980,11 @@ function renderVisitInfo() {
   updateVisitDurationHint();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: updateVisitDurationHint
+// Description: Updates the visible duration hint from the current time inputs.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function updateVisitDurationHint() {
   const hintEl = document.getElementById("visitDurationHint");
   const dur = visitDurationMinutes(STATE.timeIn, STATE.timeOut);
@@ -760,6 +994,15 @@ function updateVisitDurationHint() {
 // Shared by the Next button AND the defensive re-check right before final
 // save (spec: validate "before advancing... OR before final submission").
 // Returns a human-readable message, or null if everything's valid.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: validateVisitInfo
+// Description: Validates the Visit Details panel before navigation or final submission. Live
+//              starts may omit Time Out because the visit is intentionally open, but all
+//              completed-entry and edit workflows require a positive same-day duration.
+//              Same-day editing additionally requires the date to equal the device's local
+//              date, which prevents the Recent Activity editor from changing history.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function validateVisitInfo() {
   const date = document.getElementById("visitDateInput").value;
   const timeIn = document.getElementById("visitTimeInInput").value;
@@ -818,6 +1061,14 @@ document.getElementById("visitInfoNextBtn").addEventListener("click", () => {
 
 /* ── REASON / SUPPORT chips (shared renderer) ────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderChipGrid
+// Description: Renders reusable toggle chips for reasons or support options.
+// Parameters: string containerId - id of the element to render chips into - input
+//             Array options      - available chip labels - input
+//             Array selectedArr  - currently selected labels, toggled in place - input/output
+//             Function onChange  - callback invoked after a chip selection changes - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderChipGrid(containerId, options, selectedArr, onChange) {
   const el = document.getElementById(containerId);
   el.innerHTML = options.map(opt => `<button type="button" class="chip${selectedArr.includes(opt) ? " selected" : ""}" data-value="${escHtml(opt)}">${escHtml(opt)}</button>`).join("");
@@ -832,6 +1083,11 @@ function renderChipGrid(containerId, options, selectedArr, onChange) {
   });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: updateNextEnabled
+// Description: Enables the next button when the named workflow step is complete.
+// Parameters: string which - "reason" or "support" workflow step to check - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function updateNextEnabled(which) {
   if (which === "reason") document.getElementById("reasonNextBtn").disabled = STATE.reasons.length === 0;
   if (which === "support") document.getElementById("supportNextBtn").disabled = STATE.supports.length === 0;
@@ -859,6 +1115,11 @@ document.getElementById("supportNextBtn").addEventListener("click", () => {
 
 /* ── SCM ──────────────────────────────────────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: setScm
+// Description: Stores the explicit SCM answer and advances to required notes.
+// Parameters: boolean value - true for SCM used, false for not used - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function setScm(value) {
   STATE.scmUsed = value;
   document.getElementById("scmYesBtn").classList.toggle("selected", value === true);
@@ -882,6 +1143,11 @@ document.getElementById("scmNoBtn").addEventListener("click", () => setScm(false
 // completed visits for edit — see RECENT_ACTIVITY.select()) — represents
 // a completed record, so Notes is unconditionally required here; no
 // optional/hide-behind-a-button state is needed any more.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderNotesScreen
+// Description: Hydrates the required notes field for a new visit or same-day edit.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderNotesScreen() {
   const noteText = document.getElementById("noteText");
   noteText.value = STATE.notes || "";
@@ -917,6 +1183,14 @@ document.getElementById("notesNextBtn").addEventListener("click", () => {
 
 /* ── CONFIRM ──────────────────────────────────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: buildVisitEntry
+// Description: Converts STATE into the provider-neutral visit payload consumed by PACE_DATA
+//              (room, identity, timing, taxonomy, and completion fields). Only reads STATE;
+//              does not mutate it.
+// Parameters: boolean open - true to build an open live-start row, omitting completion-only
+//                             fields (default false) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function buildVisitEntry({ open = false } = {}) {
   return {
     id: STATE.submissionId,
@@ -941,6 +1215,15 @@ function buildVisitEntry({ open = false } = {}) {
   };
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: saveLiveVisit
+// Description: Persists a live-start visit as an open row. This path intentionally does not
+//              collect Notes, SCM, or interventions, since staff may not know those completion
+//              details when a student first enters. The resulting provider id is retained by
+//              the visit row so Mark Complete can patch the same record later. Provider
+//              failures are surfaced through the save UI.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function saveLiveVisit() {
   if (STATE.saving || !isLiveStart()) return;
   if (!STATE.student || STATE.staffMembers.length === 0 || !STATE.cameFromTeacher || STATE.reasons.length === 0 || !STATE.date || !STATE.timeIn) {
@@ -975,6 +1258,11 @@ async function saveLiveVisit() {
 // by tapping Back to the relevant earlier screen (Visit Info for date/
 // times), not inline here. Keeps this screen to "verify in seconds, then
 // tap the one dominant Save button," per spec.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderConfirmCard
+// Description: Renders the final review card before creating or updating a visit.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderConfirmCard() {
   document.getElementById("confirmTitle").textContent = isCompletingVisit() ? "Review Completion" : (isEditingVisit() ? "Review Changes" : "Ready To Log");
   document.getElementById("saveEntryBtn").textContent = isCompletingVisit() ? "COMPLETE VISIT" : (isEditingVisit() ? "UPDATE PACE VISIT" : "SAVE PACE VISIT");
@@ -1137,6 +1425,11 @@ document.getElementById("returnFromErrorBtn").addEventListener("click", () => {
 
 /* ── EXIT WORKFLOW ────────────────────────────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openExitScreen
+// Description: Opens the completion workflow for a selected open visit.
+// Parameters: Object item - open-visit provider row to complete - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function openExitScreen(item) {
   if (!item?.id) return;
   resetTrip();
@@ -1164,6 +1457,11 @@ function openExitScreen(item) {
   nav("exit", "forward");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderExitCard
+// Description: Renders the read-only context and editable completion time fields.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function renderExitCard() {
   const item = STATE.completionTarget;
   if (!item) return;
@@ -1208,6 +1506,13 @@ document.getElementById("exitReturnBtn").addEventListener("click", () => {
 
 /* ── RECENT (privacy-limited cards + same-day edit entry point) ──────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: beginEditVisit
+// Description: Loads a completed visit into the shared editing workflow. Populates
+//              STATE.editOriginal with the pre-edit values and navigates into the workflow
+//              once specialist/student/teacher options have loaded.
+// Parameters: Object visit - display-name-keyed provider row from Recent Activity - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function beginEditVisit(visit) {
   if (!isPaceAuthorized()) {
     showToast("Your account is not authorized to edit PACE visits.", "error");
@@ -1289,6 +1594,11 @@ async function beginEditVisit(visit) {
 
 const TRASH_ICON_SVG = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>`;
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: requestDeleteVisit
+// Description: Opens the destructive-action confirmation for a same-day visit.
+// Parameters: Object visit - display-name-keyed provider row to delete - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function requestDeleteVisit(visit) {
   if (!isPaceAuthorized()) {
     showToast("Your account is not authorized to delete PACE visits.", "error");
@@ -1313,6 +1623,11 @@ function requestDeleteVisit(visit) {
   document.getElementById("cancelDeleteVisitBtn").focus();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: closeDeleteConfirm
+// Description: Closes the delete confirmation without modifying provider data.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function closeDeleteConfirm() {
   STATE.deleteTarget = null;
   STATE.deleting = false;
@@ -1365,6 +1680,15 @@ document.getElementById("confirmDeleteVisitBtn").addEventListener("click", async
   errorEl.classList.remove("hidden");
 });
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadRecentActivity
+// Description: Reads today's completed visits and renders their privacy-safe cards. The
+//              provider performs the bounded read, while RECENT_ACTIVITY enforces completion,
+//              sorting, room scope, and the display allow-list. Notes, IDs, email addresses,
+//              and raw timestamps are intentionally never rendered here. Provider failures
+//              result in the retry/error panel.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function loadRecentActivity() {
   const listEl = document.getElementById("recentList");
   const refreshBtn = document.getElementById("recentRefreshBtn");
@@ -1506,6 +1830,11 @@ document.getElementById("closeDiagnosticBtn")?.addEventListener("click", () => {
 
 /* ── Misc ─────────────────────────────────────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: escHtml
+// Description: Escapes dynamic text before inserting it into application HTML.
+// Parameters: string str - raw text to HTML-escape - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function escHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

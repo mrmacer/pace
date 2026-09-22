@@ -100,6 +100,7 @@ const DemoStorage = {
       // model production's actual column names, not a guess that turned
       // out wrong, so a bug in the read side would show up here too.
       "Room":               paceRoomLabelForId(entry.paceRoom),
+      "Student ID":         entry.studentId || "",
       "Student":            entry.studentName || "",
       "Date":               entry.date || "",
       "Time In":            entry.timeIn || "",

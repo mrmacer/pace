@@ -605,7 +605,7 @@ function selectStudent(studentId) {
     // Duplicate protection applies to a new visit, never to the completed
     // row currently being edited.
     const openForRoom = openVisitsForRoom(STATE.room);
-    const existing = openForRoom.find(v => v.Student === student.name);
+    const existing = openForRoom.find(v => String(v["Student ID"] || "").trim() === String(student.id).trim());
     if (existing) {
       STATE.duplicateTarget = existing;
       document.getElementById("duplicateMsg").textContent =
@@ -923,6 +923,7 @@ function buildVisitEntry({ open = false } = {}) {
     paceRoom: isEditingVisit() ? (STATE.editingRoom || STATE.room) : STATE.room,
     staffMembers: [...STATE.staffMembers],
     cameFromTeacher: STATE.cameFromTeacher,
+    studentId: STATE.student?.id || "",
     studentName: STATE.student?.name || "",
     date: STATE.date,
     timeIn: STATE.timeIn,

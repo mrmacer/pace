@@ -164,8 +164,9 @@ assert.ok(Number(sw.match(/CACHE_NAME = "pace-tracker-shell-v(\d+)"/)?.[1]) >= 1
   /* 13: selecting a student behaves exactly as before */
   assert.match(app, /btn\.addEventListener\("click", \(\) => selectStudent\(btn\.dataset\.studentId\)\)/);
   assert.match(app, /const student = cachedStudents\.find\(s => s\.id === studentId\);\s*\n\s*if \(!student\) return;/, "selection still resolves the student by id from the full cache");
-  assert.match(app, /const existing = openForRoom\.find\(v => v\.Student === student\.name\);/, "duplicate-open check still keyed on the unchanged student.name");
+  assert.match(app, /const existing = openForRoom\.find\(v => String\(v\["Student ID"\] \|\| ""\)\.trim\(\) === String\(student\.id\)\.trim\(\)\);/, "duplicate-open check is keyed on student ID, not display name");
   assert.match(app, /STATE\.student = student;/);
+  assert.match(app, /studentId: STATE\.student\?\.id \|\| ""/);
   assert.match(app, /studentName: STATE\.student\?\.name \|\| ""/, "the visit's Student value is still student.name, not the display label");
   assert.match(app, /data-student-id="\$\{escHtml\(s\.id\)\}"/);
 

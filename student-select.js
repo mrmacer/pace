@@ -7,9 +7,9 @@
    ROSTER.getPaceEnabled(); this module never widens or narrows that list —
    it only orders, filters, and labels the students it is given.
 
-   Nothing here changes what is written to SharePoint: the student's `name`
-   (used for the visit's Student value and duplicate-open checks) is never
-   modified; only the card's visible label is formatted.
+    Nothing here changes what is written to SharePoint: the student's `name`
+    (used for the visit's Student value) is never modified; only the card's
+    visible label is formatted.
    ───────────────────────────────────────────────────────────────────────── */
 
 const PACE_STUDENT_SELECT = {

@@ -20,7 +20,7 @@
 // than silently hiding) whichever of the three names turns out NOT to be
 // live, exactly like the "SCM Used"/"SCM" pair already does below.
 const DIAGNOSTIC_CONCEPTS = [
-  "Student", "Room", "PACE Room", "Pace Room", "Date", "Time In", "Time Out", "Duration",
+  "Student", "Student ID", "Room", "PACE Room", "Pace Room", "Date", "Time In", "Time Out", "Duration",
   "Staff Member", "Behavior Specialist", "Reason", "Behavior", "Interventions",
   "Support", "SCM Used", "SCM", "Notes", "Entry ID", "Submitted By", "Submitted At"
 ];

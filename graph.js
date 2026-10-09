@@ -43,6 +43,7 @@ const GRAPH = {
   _siteId:      null,
   _listIdCache: {},
   _schemaCache: {},
+  _attemptedEntryIds: new Set(),
 
   async _get(path, additionalHeaders = {}) {
     assertGraphAllowed();
@@ -314,7 +315,7 @@ const GRAPH = {
   // a real column on the live list, so that lookup threw every single
   // time (silently, via the .catch below it used to have) and cost a full
   // list fetch before every save for zero benefit. STATE.saving (app.js)
-  // remains the functional duplicate-tap guard.
+  // remains the functional duplicate-tap guard; the retry guard is below.
   //
   // Still sent despite no live column currently matching — kept because
   // mapFields() already drops unmapped keys harmlessly (a console.warn,
@@ -364,7 +365,24 @@ const GRAPH = {
   // mapFields() silently drops whichever keys don't match a real column
   // (a console.warn, nothing more), so only the one real column actually
   // receives this write; the other two are no-ops.
+  //
+  // RETRY-IDEMPOTENCY PATCH: a POST can succeed on SharePoint while its
+  // response is lost (network blip), so the app shows the sync error and
+  // "Try Again" would POST a second row. Every POST attempt's entry.id
+  // (STATE.submissionId — stable across retries of one trip) is recorded;
+  // when the same id comes through again, today's rows are read first
+  // (the bounded per-date query) and an already-saved match is returned
+  // instead of creating a duplicate. First attempts skip the read, so a
+  // normal save costs no extra request. Same `duplicatePrevented` shape
+  // as DemoStorage.createVisit()'s guard.
   async savePaceVisit(entry) {
+    const entryId = String(entry?.id || "").trim();
+    if (entryId && this._attemptedEntryIds.has(entryId)) {
+      const existing = await this.findSavedPaceVisit(entry);
+      if (existing) return { id: existing.id, duplicatePrevented: true, existingItem: existing };
+    }
+    if (entryId) this._attemptedEntryIds.add(entryId);
+
     const roomValue = paceRoomLabelForId(entry.paceRoom);
     return this.createMappedListItem("IEP_Pace_Visits", {
       "Entry ID":           entry.id,
@@ -394,6 +412,29 @@ const GRAPH = {
       "Submitted By":       entry.submittedByName || "",
       "Submitted At":       entry.timestamp    || new Date().toISOString()
     });
+  },
+
+  // RETRY-IDEMPOTENCY PATCH: finds the row a lost-response POST already
+  // created for `entry`. Matches on "Entry ID" when that column exists on
+  // the list; otherwise (the confirmed live schema today) on the visit's
+  // own identity — same student, date, Time In and Time Out. A student
+  // can't have two genuinely separate visits starting at the same minute,
+  // so that fingerprint can't swallow a legitimate second visit.
+  async findSavedPaceVisit(entry) {
+    const date = String(entry?.date || "").slice(0, 10);
+    if (!date) return null;
+    const text = v => String(v ?? "").trim();
+    const rows = await this.getPaceVisitsForDateByDisplayName(date);
+    const entryId = text(entry.id);
+    const byEntryId = entryId && rows.find(row => text(row["Entry ID"]) === entryId);
+    if (byEntryId) return byEntryId;
+    const studentId = text(entry.studentId);
+    if (!studentId || !text(entry.timeIn)) return null;
+    return rows.find(row =>
+      text(row["Student ID"]) === studentId &&
+      text(row["Time In"]).slice(0, 5) === text(entry.timeIn).slice(0, 5) &&
+      text(row["Time Out"]).slice(0, 5) === text(entry.timeOut).slice(0, 5)
+    ) || null;
   },
 
   // PATCH 009: updates the existing SharePoint list item selected from

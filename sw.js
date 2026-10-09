@@ -1,13 +1,15 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — minimal app-shell service worker.
-
-   Scope is intentionally narrow: only caches this app's own static shell
-   files (HTML/CSS/JS/manifest/logo) so the kiosk still opens if the iPad's
-   WiFi drops momentarily. It never intercepts MSAL or Graph requests —
-   those are cross-origin and simply pass through untouched, so sign-in and
-   SharePoint sync always hit the real network (and correctly surface the
-   "Unable to sync" retry screen when offline, per the app's design).
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: sw.js
+// Purpose: Minimal network-first service worker that caches the PACE Room Tracker kiosk's
+//          static app shell (HTML/CSS/JS/manifest/logo) after successful network reads, so
+//          the kiosk still opens if the iPad's WiFi drops momentarily. Cross-origin MSAL and
+//          Graph requests are intentionally left untouched, so sign-in and SharePoint sync
+//          always hit the real network. Cache entries let the shell load offline, but
+//          production data still requires the network — a cached UI must never be mistaken
+//          for synchronized SharePoint data.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const CACHE_NAME = "pace-tracker-shell-v18"; // STAFF CORRECTIONS PATCH: new visit-corrections.js + index.html/app.js/graph.js/pace-data.js/demo-data.js/styles.css changed
 const SHELL_FILES = [
@@ -17,6 +19,8 @@ const SHELL_FILES = [
   "./config.js",
   "./demo-data.js",
   "./auth.js",
+  // REVIEW: iep-app-users.js is loaded by index.html but is not currently in
+  // this shell list; add it when the application-permission gate is enabled.
   "./graph.js",
   "./roster.js",
   "./recent-activity.js",

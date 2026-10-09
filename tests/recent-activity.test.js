@@ -256,6 +256,7 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
     // both keys legitimately coexist on the object this test reads.
     "Room": "PACE Room 2",
     "PACE Room": "pace-room-2",
+    "Student ID": "",
     Student: "Jordan M.",
     Date: TODAY,
     "Time In": "10:00",

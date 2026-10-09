@@ -1,12 +1,21 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — Student roster provider
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: roster.js
+// Purpose: Loads and normalizes the SharePoint student roster for the PACE Room Tracker
+//          kiosk, mirroring MAC Walkthrough's STUDENT_ROSTER pattern. Owns schema inversion
+//          and eligibility normalization — student-select.js handles presentation/search and
+//          app.js handles navigation. No student data is hard-coded in source; getPaceEnabled()
+//          returns only rows with Active=true and PACE Enabled=true, and no UI code should
+//          duplicate or weaken that filter.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
-   Mirrors MAC Walkthrough's STUDENT_ROSTER (app.js): loads
-   IEP_Students_2026_27 live from SharePoint, normalizes it, and exposes
-   only PACE-enabled + Active students. No student data is ever hard-coded
-   in source — this module only knows HOW to load the roster.
-   ───────────────────────────────────────────────────────────────────────── */
-
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: normalizeRosterBoolean
+// Description: Normalizes SharePoint boolean-like roster values with a safe default.
+// Parameters: any value - the raw SharePoint field value to interpret - input
+//             any defaultValue - value returned when value is undefined/null/empty - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function normalizeRosterBoolean(value, defaultValue) {
   if (value === undefined || value === null || value === "") return defaultValue;
   if (typeof value === "boolean") return value;
@@ -15,12 +24,19 @@ function normalizeRosterBoolean(value, defaultValue) {
   return s === "yes" || s === "true" || s === "1";
 }
 
+// SharePoint roster cache and normalization facade. _students holds the normalized roster
+// records; loading/loaded track refresh state; error holds the latest refresh error message.
 const ROSTER = {
   _students: [],
   loading:   false,
   loaded:    false,
   error:     null,
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: _normalize
+  // Description: Converts one schema-mapped SharePoint row into the UI student shape.
+  // Parameters: Object row - schema-mapped SharePoint roster row - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   _normalize(row) {
     const firstName = String(row["Student First Name"] || "").trim();
     const lastName  = String(row["Student Last Name"]  || "").trim();
@@ -41,6 +57,11 @@ const ROSTER = {
     };
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: refresh
+  // Description: Loads, maps, normalizes, and sorts the current student roster.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async refresh() {
     this.loading = true;
     this.error   = null;
@@ -75,7 +96,24 @@ const ROSTER = {
     return this._students;
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getPaceEnabled
+  // Description: Returns students marked both Active and PACE Enabled.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   getPaceEnabled() { return this._students.filter(s => s.active && s.paceEnabled); },
+
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: find
+  // Description: Finds one normalized student by stable roster id.
+  // Parameters: string id - the roster id to look up - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   find(id)         { return this._students.find(s => s.id === id) || null; },
+
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: findByName
+  // Description: Finds one normalized student by exact display name.
+  // Parameters: string name - the exact display name to look up - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   findByName(name) { return this._students.find(s => s.name === name) || null; }
 };

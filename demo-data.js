@@ -1,12 +1,14 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — Demo mode data (no IU29 data, ever)
-
-   Everything in this file is fake: a simulated roster, a simulated staff
-   identity, and a localStorage-backed record store. Nothing here reads or
-   writes anything real. See config.js for APP_MODE / DEMO_CONFIG and
-   pace-data.js for how this plugs into the same UI code path production
-   uses.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: demo-data.js
+// Purpose: Provides local-only, synthetic demo data (DEMO_STUDENTS, DEMO_USER, staff lists)
+//          and a localStorage-backed DemoStorage record store for PACE Room Tracker demo mode
+//          — nothing here reads or writes real IU29 or Microsoft data. Stored keys intentionally
+//          mirror Graph's display-field names so rendering and workflow code in app.js can be
+//          exercised identically in both demo and production modes; see config.js for
+//          APP_MODE/DEMO_CONFIG and pace-data.js for how this plugs into the same UI code path.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // PATCH 004: `teacher` added so demo mirrors the real Teacher → Student
 // grouping (roster.js now reads the same live column). Fake teacher names,
@@ -20,6 +22,7 @@ const DEMO_STUDENTS = [
   { id: "SIM-006", name: "Riley C.",  teacher: "Ms. Castillo", active: true }
 ];
 
+// The signed-in identity used throughout demo mode — a fake staff user, never a real IU29 person.
 const DEMO_USER = {
   id: "demo-user",
   name: "Demo Staff",
@@ -40,7 +43,16 @@ const DEMO_SPECIALISTS = ["Dana Fielding", "Marcus Webb", "Priya Anand"];
 // dedupe/merge behavior gets exercised the same way real data would.
 const DEMO_CAME_FROM_TEACHERS = ["Mrs. Ashford", "Mr. Bellamy", "Ms. Castillo", "Mr. Delgado"];
 
+// Local-storage-backed demo record store: mirrors GRAPH's visit CRUD surface (load/save/get/
+// create/update/delete/reset) but persists only to the browser's localStorage under
+// DEMO_CONFIG.storageKey, so app.js's render/workflow code can run unmodified in demo mode.
 const DemoStorage = {
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: load
+  // Description: Reads the demo visit database from localStorage, returning an empty store if
+  //   the stored value is missing or fails to parse.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   load() {
     try {
       return JSON.parse(localStorage.getItem(DEMO_CONFIG.storageKey)) || { paceVisits: [] };
@@ -49,10 +61,20 @@ const DemoStorage = {
     }
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: save
+  // Description: Persists the complete demo database object to localStorage.
+  // Parameters: object data - the full demo database to write - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   save(data) {
     localStorage.setItem(DEMO_CONFIG.storageKey, JSON.stringify(data));
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getVisits
+  // Description: Returns the array of all locally stored demo visits.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   getVisits() {
     return this.load().paceVisits || [];
   },
@@ -77,6 +99,14 @@ const DemoStorage = {
   // are kept here even though the live SharePoint list currently has no
   // matching column for them (see README) — demo still models the full
   // logical visit regardless of what production can persist today.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: createVisit
+  // Description: Builds one demo visit record from the given entry, converts it to the same
+  //   display-field-name keys production uses, and appends it to the stored database; rejects
+  //   retries that reuse the same entry id instead of creating a duplicate row.
+  // Parameters: object entry - the visit fields to record, matching app.js's GRAPH.savePaceVisit()
+  //   input shape - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   createVisit(entry) {
     const data = this.load();
     const id = entry.id || crypto.randomUUID();
@@ -134,6 +164,13 @@ const DemoStorage = {
 
   // `patch` uses the same display-field-name keys as the stored row, e.g.
   // { "Time Out": "14:05" } — kept consistent with createVisit() above.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: updateVisit
+  // Description: Applies a display-field-name patch to one stored demo visit and stamps it with
+  //   a modification timestamp.
+  // Parameters: string id - the id of the visit to update - input
+  //   object patch - display-field-name values to merge into the visit - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   updateVisit(id, patch) {
     const data = this.load();
     const visit = data.paceVisits.find(item => item.id === id);
@@ -145,6 +182,12 @@ const DemoStorage = {
 
   // STAFF CORRECTIONS: removes exactly the one demo row with this id; never
   // by any other property. Throws (deleting nothing) if that id isn't there.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: deleteVisit
+  // Description: Deletes exactly one demo visit matching the given id, throwing without changing
+  //   the store if no single matching visit is found.
+  // Parameters: string id - the id of the visit to delete - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   deleteVisit(id) {
     const data = this.load();
     const matches = data.paceVisits.filter(item => item.id === id);
@@ -154,6 +197,11 @@ const DemoStorage = {
     return { deleted: true, id };
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: reset
+  // Description: Clears all demo visit data from the current browser's localStorage.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   reset() {
     localStorage.removeItem(DEMO_CONFIG.storageKey);
   }

@@ -1,20 +1,34 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — Unified data adapter
-
-   The single interface app.js talks to. Every read/write branches on
-   APP_MODE here, in exactly one place — app.js never checks APP_MODE or
-   calls GRAPH/DemoStorage directly, so the two modes render and behave
-   identically (spec: "The UX should be identical to production mode. Only
-   the backend changes.").
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: pace-data.js
+// Purpose: The sole data boundary used by app.js. Presents one unified provider API while
+//          selecting either DemoStorage or GRAPH according to APP_MODE, so both modes render
+//          and behave identically. UI room comparisons use internal ids (e.g. pace-room-1);
+//          normalizeRoomOnRead() converts SharePoint's room labels back into those ids before
+//          data reaches other modules. Production-only context storage never stores student
+//          names or notes.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // PATCH 010: same comma-join convention as Reason/Intervention Used
 // (entry.behaviors.join(", ") etc., below and in graph.js) — see
 // recent-activity.js's specialistNames()/selections() for the read side.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: joinSpecialists
+// Description: Serializes one or more specialist names into a single comma-joined string for
+//              text-backed list fields.
+// Parameters: Array<string>|string staffMembers - specialist name(s) to serialize - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function joinSpecialists(staffMembers) {
   return Array.isArray(staffMembers) ? staffMembers.filter(Boolean).join(", ") : (staffMembers || "");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: paceDataTodayISODate
+// Description: Returns the adapter's local calendar date (YYYY-MM-DD) used for same-day edit
+//              checks.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function paceDataTodayISODate() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -25,6 +39,12 @@ function paceDataTodayISODate() {
 // context on this iPad, keyed by the SharePoint item id, so a just-created
 // open visit remains room-scoped after refresh. SharePoint remains the
 // visit source of truth; this never stores student names or visit details.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadVisitContext
+// Description: Loads non-student context (room/specialist/teacher) remembered locally for
+//              production visit rows.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function loadVisitContext() {
   try { return JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEYS.VISIT_CONTEXT)) || {}; }
   catch { return {}; }
@@ -33,6 +53,15 @@ function loadVisitContext() {
 // STAFF CORRECTIONS: a correction may carry only the fields that changed, so
 // a key absent from `entry` keeps the value already remembered instead of
 // being blanked. A full entry (create / legacy full update) behaves as before.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: rememberVisitContext
+// Description: Stores room, specialist, and teacher context for a visit, keyed by its
+//              SharePoint item id; a partial entry keeps previously remembered values for
+//              fields not supplied.
+// Parameters: string|number itemId - SharePoint item id to key the stored context by - input
+//             Object entry - visit fields to remember (room/staffMembers/teacher, may be
+//             partial) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function rememberVisitContext(itemId, entry) {
   if (!itemId || APP_MODE === "demo") return;
   const context = loadVisitContext();
@@ -48,6 +77,12 @@ function rememberVisitContext(itemId, entry) {
 // STAFF CORRECTIONS: a deleted visit leaves nothing behind on this device.
 // (SharePoint item ids are never reused, so an orphan would be harmless —
 // this just keeps the local cache from accumulating dead entries.)
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: forgetVisitContext
+// Description: Removes locally remembered context after a visit is deleted.
+// Parameters: string|number itemId - SharePoint item id whose local context should be
+//             cleared - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function forgetVisitContext(itemId) {
   if (!itemId || APP_MODE === "demo") return;
   const context = loadVisitContext();
@@ -66,6 +101,12 @@ function forgetVisitContext(itemId) {
 // key holds the value already there. An older record with no room value
 // under any candidate correctly returns "" (see README "Older records" —
 // never inferred, never backfilled).
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: readPaceRoomValue
+// Description: Reads a room value from a visit object by trying each supported live or legacy
+//              field-name alias in turn, returning the first one present.
+// Parameters: Object visit - raw visit record to read a room value from - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function readPaceRoomValue(visit) {
   for (const key of PACE_ROOM_FIELD_CANDIDATES) {
     const value = visit?.[key];
@@ -74,6 +115,12 @@ function readPaceRoomValue(visit) {
   return "";
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: enrichVisitContext
+// Description: Merges production visit rows with locally remembered context fields not yet
+//              present in the live schema.
+// Parameters: Object[] visits - raw provider visit rows - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function enrichVisitContext(visits) {
   if (APP_MODE === "demo") return visits;
   const context = loadVisitContext();
@@ -103,6 +150,12 @@ function enrichVisitContext(visits) {
 // readPaceRoomValue() (not a hardcoded "PACE Room" read) covers both the
 // production case (enrichVisitContext() already normalized to "PACE Room")
 // and the demo case (DemoStorage's own rows carry "Room" directly).
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: normalizeRoomOnRead
+// Description: Converts each visit's persisted room label into the internal room id used
+//              throughout the UI.
+// Parameters: Object[] visits - visit rows to normalize - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function normalizeRoomOnRead(visits) {
   return visits.map(visit => ({
     ...visit,
@@ -115,6 +168,13 @@ const PACE_DATA = {
   // PACE-eligible (there's no separate "PACE Enabled" concept in the fake
   // roster); production defers to ROSTER's real Active + PACE Enabled
   // filtering, loading it on first use if it hasn't been already.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getStudents
+  // Description: Returns students eligible for PACE selection; demo mode returns all active
+  //              demo students, production loads and filters the real roster for Active +
+  //              PACE Enabled records.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getStudents() {
     if (APP_MODE === "demo") {
       return DEMO_STUDENTS.filter(s => s.active);
@@ -127,6 +187,13 @@ const PACE_DATA = {
   // the shapes match). Supplying a date keeps the shared iPad read bounded
   // to that local calendar day; production applies the date in Graph and
   // demo filters only the localStorage copy.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getVisits
+  // Description: Reads provider visits, optionally bounded to one local calendar date, and
+  //              normalizes room values for UI consumers.
+  // Parameters: Object options - optional bag with a `date` (YYYY-MM-DD) to bound results
+  //             to - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getVisits({ date } = {}) {
     if (APP_MODE === "demo") {
       const visits = DemoStorage.getVisits();
@@ -145,11 +212,24 @@ const PACE_DATA = {
   // Recent Activity receives today's bounded rows, then applies the tested
   // completed/newest/room rules in RECENT_ACTIVITY. The `roomScoped` flag
   // tells the UI whether room labels would be redundant.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getRecentVisits
+  // Description: Returns the bounded, completed, newest-first Recent Activity selection for
+  //              the given date/room/limit.
+  // Parameters: Object options - optional bag with `date` (local date), `room` (internal room
+  //             id), and `limit` (max card count, default 10) - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getRecentVisits({ date, room, limit = 10 } = {}) {
     const visits = await this.getVisits({ date });
     return RECENT_ACTIVITY.select(visits, { date, room, limit });
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: createVisit
+  // Description: Creates one visit through the active provider (demo storage or Graph) and
+  //              remembers its context in production mode.
+  // Parameters: Object entry - provider-neutral visit payload from app.js - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async createVisit(entry) {
     if (APP_MODE === "demo") return DemoStorage.createVisit(entry);
     const result = await GRAPH.savePaceVisit(entry);
@@ -173,6 +253,14 @@ const PACE_DATA = {
   //     completed visit back into an open one;
   //   - nothing to change is refused rather than sent as an empty PATCH.
   // A call without `entry.original` (legacy full update) is unchanged.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: updateVisit
+  // Description: Validates and applies a same-day full or differential (correction) visit edit
+  //              through the active provider.
+  // Parameters: string id - provider item id being edited - input
+  //             Object entry - new logical values, optionally including `original` for a
+  //             correction - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async updateVisit(id, entry) {
     if (!id) throw new Error("A visit is required for editing.");
     const isCorrection = Boolean(entry?.original);
@@ -220,6 +308,12 @@ const PACE_DATA = {
   // STAFF CORRECTIONS: removes exactly one visit, by item id only. Success
   // is returned only after the store confirmed it (Graph 204 in production);
   // any failure throws and nothing is reported as deleted.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: deleteVisit
+  // Description: Deletes exactly one visit by provider item id and forgets its locally
+  //              remembered context in production mode.
+  // Parameters: string|number id - provider item id to delete - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async deleteVisit(id) {
     const itemId = String(id ?? "").trim();
     if (!itemId) throw new Error("A visit is required for deletion.");
@@ -231,6 +325,14 @@ const PACE_DATA = {
 
   // Completes an existing open record. This path never calls createVisit:
   // Time Out and completion-only fields are patched onto the same id.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: completeVisit
+  // Description: Completes an open visit in place by patching Time Out and completion-only
+  //              fields onto the existing id, without creating a second record.
+  // Parameters: string|number id - existing open visit id - input
+  //             Object entry - completion fields: timeOut, durationMinutes, interventions,
+  //             scmUsed, notes - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async completeVisit(id, entry) {
     if (!id) throw new Error("An open visit is required for completion.");
     const patch = {
@@ -244,6 +346,13 @@ const PACE_DATA = {
     return GRAPH.completePaceVisit(id, entry);
   },
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: closeVisit
+  // Description: Retains the legacy close operation for an open visit, setting only its
+  //              Time Out.
+  // Parameters: string|number id - open visit id to close - input
+  //             string timeOut - time-out value to record - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async closeVisit(id, timeOut) {
     if (APP_MODE === "demo") return DemoStorage.updateVisit(id, { "Time Out": timeOut });
     return GRAPH.closePaceVisit(id, timeOut);
@@ -259,6 +368,13 @@ const PACE_DATA = {
   // remove CONFIG.BEHAVIOR_SPECIALISTS and this catch once dynamic
   // loading is confirmed working against real production data (can't be
   // verified from here — no live Graph session in this environment).
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getSpecialists
+  // Description: Returns selectable active Behavior Specialists; demo mode returns the fake
+  //              roster, production loads Active Behavior Specialist rows from IEP_Users2 with
+  //              a temporary hardcoded fallback.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getSpecialists() {
     if (APP_MODE === "demo") return DEMO_SPECIALISTS.slice();
     try {
@@ -290,6 +406,13 @@ const PACE_DATA = {
   //
   // Adding a teacher later still needs no code change — see README
   // "Future teacher additions."
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getTeachers
+  // Description: Returns selectable active Teacher-role users from IEP_Users2, the sole
+  //              authoritative source; returns an empty array (never a roster fallback) if the
+  //              query fails or is empty.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async getTeachers() {
     if (APP_MODE === "demo") return DEMO_CAME_FROM_TEACHERS.slice();
     try {

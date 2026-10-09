@@ -1,15 +1,19 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — Configuration
-   Standalone iPad kiosk app. Shares SharePoint backend with MAC Walkthrough
-   but has its own tiny UI. See README.md for the architecture summary.
-
-   Values below (site, list names, option lists, MSAL app registration) are
-   copied from the existing, proven MAC Walkthrough project
-   (/Projects/01-IU29/MAC-Walkthrough/config.js, auth.js, graph.js) rather
-   than invented. Do not hand-guess SharePoint internal field names anywhere
-   in this app — GRAPH.mapFields() always resolves display name → internal
-   name live from the list schema.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 20, 2026
+// Filename: config.js
+// Purpose: Central configuration and environment selection for PACE Room Tracker, a
+//          standalone iPad kiosk app that shares its SharePoint backend with MAC
+//          Walkthrough. Defines SharePoint list names, room metadata, taxonomy
+//          choices, local-storage keys, and demo/production mode selection. Demo is
+//          the default for unknown hosts and explicit ?demo URLs; production is
+//          selected only for the allow-listed deployed hostname or an explicit
+//          manual ?production flag. Values below (site, list names, option lists)
+//          are copied from the proven MAC Walkthrough project rather than invented,
+//          and SharePoint internal field names are never hand-guessed since
+//          GRAPH.mapFields() always resolves display name to internal name live
+//          from the list schema.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 // ── App mode ────────────────────────────────────────────────────────────
 // "demo"       — no Microsoft sign-in, no Graph calls, simulated roster,
@@ -33,6 +37,13 @@
 //      hostname; everything else (localhost, a Vercel preview URL, a
 //      not-yet-listed custom domain) defaults to demo. Fails toward "no
 //      access to real data," never the other way.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: resolveAppMode
+// Description: Determines whether the app runs in demo or production mode, based on
+//               explicit ?demo/?production URL query flags or, failing that, the current
+//               hostname.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function resolveAppMode() {
   const params = new URLSearchParams(window.location.search);
   if (params.has("demo")) return "demo";
@@ -41,6 +52,10 @@ function resolveAppMode() {
   return PRODUCTION_HOSTNAMES.includes(window.location.hostname) ? "production" : "demo";
 }
 const APP_MODE = resolveAppMode(); // "demo" | "production"
+
+// REVIEW: production access currently defaults to the legacy IEP_Users2 gate
+// unless the separate IEP_App_Users migration switch is enforced. Treat any
+// change to this mode as an authorization change and verify tenant readiness.
 
 const DEMO_CONFIG = {
   enabled: APP_MODE === "demo",
@@ -150,10 +165,23 @@ const CONFIG = {
 // graph.js and demo-data.js are plain <script> globals loaded before
 // pace-data.js, and this is pure config-driven lookup with no APP_MODE
 // branching of its own.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: paceRoomLabelForId
+// Description: Converts an internal room id to the human-readable label that gets
+//               persisted to SharePoint.
+// Parameters: string id - the internal room id to look up - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function paceRoomLabelForId(id) {
   const room = CONFIG.ROOMS.find(r => r.id === id);
   return room ? room.label : (id || "");
 }
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: paceRoomIdForLabel
+// Description: Converts a persisted room label (or a value already in internal id form)
+//               back to the internal room id, passing unrecognized values through
+//               unchanged.
+// Parameters: string value - the room label or id read from a visit record - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function paceRoomIdForLabel(value) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";

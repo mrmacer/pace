@@ -143,7 +143,7 @@ const names = list => list.map(s => s.name);
   assert.doesNotMatch(app, /STUDENT_SUGGESTION_LIMIT/, "the suggestion cap must be removed");
   {
     const start = app.indexOf("function renderStudentGrid(");
-    const end = app.indexOf("\n}\n", start);
+    const end = app.indexOf("\n}\r\n", start);
     const body = app.slice(start, end);
     assert.doesNotMatch(body, /\.slice\(/, "renderStudentGrid must not slice the roster");
     assert.doesNotMatch(body, /Start typing a student's name/, "the blank-state placeholder-instead-of-roster must be gone");

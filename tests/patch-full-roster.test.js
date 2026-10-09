@@ -143,7 +143,8 @@ const names = list => list.map(s => s.name);
   assert.doesNotMatch(app, /STUDENT_SUGGESTION_LIMIT/, "the suggestion cap must be removed");
   {
     const start = app.indexOf("function renderStudentGrid(");
-    const end = app.indexOf("\n}\n", start);
+    // Tolerate LF or CRLF checkouts (the file is LF in git; was CRLF-only here).
+    const end = app.slice(start).search(/\r?\n\}\r?\n/) + start;
     const body = app.slice(start, end);
     assert.doesNotMatch(body, /\.slice\(/, "renderStudentGrid must not slice the roster");
     assert.doesNotMatch(body, /Start typing a student's name/, "the blank-state placeholder-instead-of-roster must be gone");
@@ -164,8 +165,9 @@ assert.ok(Number(sw.match(/CACHE_NAME = "pace-tracker-shell-v(\d+)"/)?.[1]) >= 1
   /* 13: selecting a student behaves exactly as before */
   assert.match(app, /btn\.addEventListener\("click", \(\) => selectStudent\(btn\.dataset\.studentId\)\)/);
   assert.match(app, /const student = cachedStudents\.find\(s => s\.id === studentId\);\s*\n\s*if \(!student\) return;/, "selection still resolves the student by id from the full cache");
-  assert.match(app, /const existing = openForRoom\.find\(v => v\.Student === student\.name\);/, "duplicate-open check still keyed on the unchanged student.name");
+  assert.match(app, /const existing = openForRoom\.find\(v => String\(v\["Student ID"\] \|\| ""\)\.trim\(\) === String\(student\.id\)\.trim\(\)\);/, "duplicate-open check is keyed on student ID, not display name");
   assert.match(app, /STATE\.student = student;/);
+  assert.match(app, /studentId: STATE\.student\?\.id \|\| ""/);
   assert.match(app, /studentName: STATE\.student\?\.name \|\| ""/, "the visit's Student value is still student.name, not the display label");
   assert.match(app, /data-student-id="\$\{escHtml\(s\.id\)\}"/);
 

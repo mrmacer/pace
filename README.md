@@ -173,6 +173,48 @@ manual configuration below is complete.
 `pace-room-tracker`. Deploy manually with `vercel deploy --prod` after
 local verification; code changes are not deployed automatically.
 
+### PATCH 011 — "Other" location (support outside a physical PACE room)
+
+Staff reported that a lot of their day never touched a physical PACE room at
+all — de-escalating a student in the Wiggle Room, a classroom check-in, a
+walk — and none of that time was being captured, even though it's exactly
+the kind of intervention parents and admin want documented. This patch adds
+**Other** as a third entry on the Home screen's room picker
+(`CONFIG.ROOMS`), alongside PACE Room 1/2, so that time gets logged through
+the same Start Visit / Log Completed Visit / Mark Complete workflow as a
+room visit — just not tied to a physical room.
+
+**No SharePoint schema change needed.** `Room` is a plain text column (see
+the schema table below); the app already writes whatever
+`CONFIG.ROOMS[].label` is via `paceRoomLabelForId()`, so a third label
+("Other") persists exactly the same way "PACE Room 1"/"PACE Room 2" do.
+
+**Almost every consumer needed zero code changes.** `recent-activity.js`,
+`visit-workflow.js`, the same-day-edit room `<select>`, and duplicate-open-
+visit protection all already read `CONFIG.ROOMS` generically rather than
+assuming exactly two rooms — confirmed by inspection before writing this
+patch, the same way the ROOM-FIELD-NAME PATCH confirmed its own blast
+radius. The one new flag, `isPhysicalRoom: false` on the `other` entry, is
+read in exactly one place — `app.js`'s `currentRoomConfig()` — to swap a
+handful of PACE-room-specific strings for wording that doesn't imply a
+physical room:
+- Room screen: "Student is entering PACE now" → "Support is starting now";
+  "Currently in PACE" → "Currently receiving support"; the empty-state
+  message and the Start Visit toast follow the same split.
+- Notes screen: the placeholder becomes "Describe what happened and where
+  (e.g., Wiggle Room, classroom check-in, a walk)…" — Notes was already
+  required on every completed visit (see "PATCH 010" below), so this reuses
+  that existing required field rather than adding a second one; it's the
+  detail staff specifically asked for to help parents understand what
+  happened.
+
+Everything else about the workflow is identical to a room visit: Specialist
+→ Student → Teacher Came From → Reason/Support chips → SCM → Notes →
+Confirm, same duplicate-open-visit protection, same same-day edit/delete,
+same Recent Activity scoping. Styled with a neutral gray theme
+(`body[data-room="other"]`) deliberately distinct from both room colors, so
+staff can't mistake it for a third physical room at a glance.
+
 ## Known gaps / decisions made without further data model changes
 
 ### Live `IEP_Pace_Visits` schema (verified by PATCH 003's in-app diagnostic — authoritative)

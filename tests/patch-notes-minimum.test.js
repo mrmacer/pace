@@ -199,7 +199,7 @@ async function verifyDemoDataLayer() {
   assert.ok(inputHandler.slice(0, 300).includes("updateNotesCounter()"), "counter updates as the user types");
   assert.match(app, /meaningful characters/);
   assert.match(app, /classList\.toggle\("met", result\.valid\)/, "success indicator when satisfied");
-  assert.match(app, /function renderNotesScreen\(\)[\s\S]{0,400}updateNotesCounter\(\)/, "counter is correct when the screen is reopened with an existing draft");
+  assert.match(app, /function renderNotesScreen\(\)[\s\S]{0,1200}updateNotesCounter\(\)/, "counter is correct when the screen is reopened with an existing draft");
 
   // Requirement message is shown inline, user stays on Notes, draft preserved.
   const next = app.slice(app.indexOf('document.getElementById("notesNextBtn").addEventListener'));

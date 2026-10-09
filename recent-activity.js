@@ -1,20 +1,36 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — Recent Activity selection + privacy-safe card models
-
-   This file contains no UI, Graph, or localStorage access. PACE_DATA owns
-   the backend choice; app.js receives only the small, today-scoped result
-   and converts each selected visit into the explicitly allowed card fields.
-   Keeping the rules pure also makes the shared-iPad privacy boundary easy to
-   test without a Microsoft session.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 25, 2026
+// Filename: recent-activity.js
+// Purpose: Pure selection and view-model rules for the PACE Room Tracker Recent Activity
+//          panel. No DOM, network, authentication, or storage access belongs here, so room
+//          scoping, sorting, privacy filtering, and edit hydration stay testable without a
+//          browser or Microsoft session. cardModel() is an explicit privacy allow-list — notes,
+//          IDs, email addresses, and raw submission timestamps must not be added casually.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const RECENT_ACTIVITY = (() => {
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: text
+  // Description: Normalizes a value to a trimmed string, treating null/undefined as empty.
+  // Parameters: any value - the value to coerce and trim - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const text = value => String(value ?? "").trim();
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: dateOnly
+  // Description: Extracts a YYYY-MM-DD date key from a stored date value.
+  // Parameters: any value - the stored date value to normalize - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function dateOnly(value) {
     return text(value).slice(0, 10);
   }
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: personDisplayName
+  // Description: Converts SharePoint person shapes or strings into display text.
+  // Parameters: any value - a person field value (string, object, or array) - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function personDisplayName(value) {
     if (Array.isArray(value)) return value.map(personDisplayName).filter(Boolean).join(", ");
     if (value && typeof value === "object") {
@@ -23,6 +39,11 @@ const RECENT_ACTIVITY = (() => {
     return text(value);
   }
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: sortKey
+  // Description: Builds a stable newest-first sort key from visit timestamps.
+  // Parameters: object visit - the visit record to derive a sort key from - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function sortKey(visit) {
     const explicit = text(visit["Submitted At"] || visit.Created || visit.createdAt);
     const parsed = explicit ? Date.parse(explicit) : NaN;
@@ -44,6 +65,12 @@ const RECENT_ACTIVITY = (() => {
   // here is already the normalized slug for every current row; this
   // fallback now only matters for older rows saved before the column
   // existed. If room values exist, never mix another room into the list.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: select
+  // Description: Selects today's completed visits with optional room scope and limit.
+  // Parameters: array visits - the full list of visit records to filter - input
+  //             object options - { date, room, limit } selection options - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function select(visits, { date, room = "", limit = 10 } = {}) {
     const targetDate = dateOnly(date);
     const targetRoom = text(room);
@@ -73,6 +100,11 @@ const RECENT_ACTIVITY = (() => {
     };
   }
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: durationMinutes
+  // Description: Returns stored duration or calculates it from visit times.
+  // Parameters: object visit - the visit record to read duration/times from - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function durationMinutes(visit) {
     const storedText = text(visit.Duration);
     const stored = Number(storedText);
@@ -90,6 +122,12 @@ const RECENT_ACTIVITY = (() => {
 
   // This object is the privacy allow-list for each card. Notes, IDs,
   // emails, metadata, and raw timestamps never enter the render path.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: cardModel
+  // Description: Produces the privacy-limited fields allowed on a Recent card.
+  // Parameters: object visit - the visit record to project into a card - input
+  //             object options - { roomScoped } - whether room is already implied - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function cardModel(visit, { roomScoped = false } = {}) {
     const timeOut = text(visit["Time Out"]);
     return {
@@ -102,10 +140,21 @@ const RECENT_ACTIVITY = (() => {
     };
   }
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: isEditableToday
+  // Description: Reports whether a visit has an id and belongs to the requested day.
+  // Parameters: object visit - the visit record to check - input
+  //             string date - the day the visit must fall on - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function isEditableToday(visit, date) {
     return Boolean(text(visit?.id)) && dateOnly(visit?.Date) === dateOnly(date);
   }
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: selections
+  // Description: Parses comma/semicolon-delimited multi-choice text into an array.
+  // Parameters: any value - a delimited string or array of choice values - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function selections(value) {
     if (Array.isArray(value)) return value.map(item => text(item)).filter(Boolean);
     return text(value).split(/[,;]/).map(item => item.trim()).filter(Boolean);
@@ -120,6 +169,11 @@ const RECENT_ACTIVITY = (() => {
   // resolved Person-field object/array (never expected in practice — see
   // README "Staff Member is a Person field" — but harmless if it ever
   // happens) still normalizes to plain names before splitting.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: specialistNames
+  // Description: Normalizes specialist values into individual display names.
+  // Parameters: any value - a Person field, string, or array of specialist values - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function specialistNames(value) {
     return selections(personDisplayName(value));
   }
@@ -128,6 +182,11 @@ const RECENT_ACTIVITY = (() => {
   // in PACE): full names up to 2, "First Name +N" beyond that. Screens with
   // room to spare (Confirm, Mark Complete) use specialistNames() directly
   // instead, one name per line — see app.js.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: formatSpecialistsCompact
+  // Description: Compresses specialist names for narrow room and Recent Activity cards.
+  // Parameters: any value - a Person field, string, or array of specialist values - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function formatSpecialistsCompact(value) {
     const names = specialistNames(value);
     if (names.length === 0) return "";
@@ -135,6 +194,11 @@ const RECENT_ACTIVITY = (() => {
     return `${names[0]} +${names.length - 1}`;
   }
 
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: booleanValue
+  // Description: Converts common SharePoint boolean representations to true/false/null.
+  // Parameters: any value - a boolean-ish value (bool, number, or string) - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function booleanValue(value) {
     if (value === true || value === 1) return true;
     if (value === false || value === 0) return false;
@@ -146,6 +210,12 @@ const RECENT_ACTIVITY = (() => {
 
   // Full details are exposed only to the deliberate editor entry point;
   // cardModel above remains the shared-iPad display allow-list.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: editModel
+  // Description: Hydrates the full, deliberate same-day editing model from one row.
+  // Parameters: object visit - the visit record to hydrate for editing - input
+  //             object options - { fallbackRoom, validRooms } - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function editModel(visit, { fallbackRoom = "", validRooms = [] } = {}) {
     const storedRoom = text(visit?.["PACE Room"]);
     return {

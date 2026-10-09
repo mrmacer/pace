@@ -7,6 +7,31 @@ const PACE_VISIT_WORKFLOW = {
     EDITING: "editing"
   }),
 
+  // NOTES MINIMUM: the one reusable rule for completed-visit Notes. A
+  // completed visit (Mark Complete, after-the-fact entry, or an edit of a
+  // completed visit) needs at least NOTES_MIN_MEANINGFUL letters/numbers.
+  // Whitespace and punctuation never count. This only measures — it never
+  // rewrites, trims into, or generates note text; callers save what the
+  // user typed.
+  NOTES_MIN_MEANINGFUL: 20,
+  NOTES_REQUIREMENT_MESSAGE: "Please enter at least 20 letters or numbers describing the visit or support provided.",
+
+  countMeaningfulChars(notes) {
+    const matches = String(notes ?? "").trim().match(/[\p{L}\p{N}]/gu);
+    return matches ? matches.length : 0;
+  },
+
+  validateCompletionNotes(notes) {
+    const count = this.countMeaningfulChars(notes);
+    const required = this.NOTES_MIN_MEANINGFUL;
+    return {
+      valid: count >= required,
+      count,
+      required,
+      message: count >= required ? "" : this.NOTES_REQUIREMENT_MESSAGE
+    };
+  },
+
   durationMinutes(timeIn, timeOut) {
     if (!timeIn || !timeOut) return null;
     const [ih, im] = String(timeIn).split(":").map(Number);

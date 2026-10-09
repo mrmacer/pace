@@ -35,12 +35,13 @@ assert.doesNotMatch(html, /Optional note/, 'no "optional" placeholder text shoul
 
 // Notes screen's own Next button: trims first, then checks the trimmed
 // value — same trim semantics, applied at the point of entry.
-assert.match(app, /const trimmed = document\.getElementById\("noteText"\)\.value\.trim\(\);\s*\n\s*if \(!trimmed\)/, "notesNextBtn must block advancing to Confirm on blank/whitespace-only Notes, using trim semantics");
+assert.match(app, /const raw = document\.getElementById\("noteText"\)\.value;\s*\n\s*if \(!PACE_VISIT_WORKFLOW\.validateCompletionNotes\(raw\)\.valid\)/, "notesNextBtn must block advancing to Confirm on non-compliant Notes via the shared validator (see patch-notes-minimum.test.js)");
 // saveEntryBtn's defensive re-check: same trim semantics, re-verified
 // directly against STATE in case anything changed since the Notes screen.
-assert.match(app, /if \(!STATE\.notes \|\| !STATE\.notes\.trim\(\)\)/, "saveEntryBtn must defensively re-check Notes with the same trim semantics, mirroring the existing SCM/date-time re-check pattern");
-assert.doesNotMatch(app, /STATE\.notes\.trim\(\)\.length\s*[<>]=?\s*\d/, "must not invent a minimum character count — trim-to-non-empty only");
-assert.doesNotMatch(app, /notes.{0,40}length\s*[<>]=?\s*[1-9]\d*/i, "no arbitrary minimum length check anywhere near notes validation");
+assert.match(app, /if \(!PACE_VISIT_WORKFLOW\.validateCompletionNotes\(STATE\.notes\)\.valid\)/, "saveEntryBtn must defensively re-check Notes with the shared validator, mirroring the existing SCM/date-time re-check pattern");
+// The 20-character minimum is now deliberate, but it lives in ONE place
+// (visit-workflow.js) — app.js must not grow its own inline length check.
+assert.doesNotMatch(app, /notes.{0,40}length\s*[<>]=?\s*[1-9]\d*/i, "no inline minimum-length check in app.js — use PACE_VISIT_WORKFLOW.validateCompletionNotes()");
 
 /* ── 4: blocked validation performs NO Graph write ───────────────────── */
 
@@ -48,7 +49,7 @@ assert.doesNotMatch(app, /notes.{0,40}length\s*[<>]=?\s*[1-9]\d*/i, "no arbitrar
   const handlerStart = app.indexOf('document.getElementById("saveEntryBtn").addEventListener("click"');
   assert.ok(handlerStart >= 0, "saveEntryBtn click handler must exist");
   const savingIdx = app.indexOf("STATE.saving = true;", handlerStart);
-  const notesCheckIdx = app.indexOf("if (!STATE.notes || !STATE.notes.trim())", handlerStart);
+  const notesCheckIdx = app.indexOf("if (!PACE_VISIT_WORKFLOW.validateCompletionNotes(STATE.notes).valid)", handlerStart);
   const buildEntryIdx = app.indexOf("const entry = buildVisitEntry();", handlerStart);
   const createIdx = app.indexOf("PACE_DATA.createVisit(entry)", handlerStart);
   const completeIdx = app.indexOf("PACE_DATA.completeVisit(", handlerStart);
@@ -70,7 +71,7 @@ assert.doesNotMatch(app, /notes.{0,40}length\s*[<>]=?\s*[1-9]\d*/i, "no arbitrar
 
 {
   const scmCheckIdx = app.indexOf("STATE.scmUsed !== true && STATE.scmUsed !== false");
-  const notesCheckIdx = app.indexOf("if (!STATE.notes || !STATE.notes.trim())", scmCheckIdx);
+  const notesCheckIdx = app.indexOf("if (!PACE_VISIT_WORKFLOW.validateCompletionNotes(STATE.notes).valid)", scmCheckIdx);
   const checkBlockEnd = app.indexOf("STATE.saving = true;", notesCheckIdx);
   const checkBlock = app.slice(notesCheckIdx, checkBlockEnd);
   for (const field of ["STATE.reasons", "STATE.supports", "STATE.scmUsed", "STATE.student", "STATE.staffMembers", "STATE.cameFromTeacher", "STATE.date", "STATE.timeIn", "STATE.timeOut"]) {
@@ -94,7 +95,7 @@ assert.doesNotMatch(app, /notes.{0,40}length\s*[<>]=?\s*[1-9]\d*/i, "no arbitrar
    exempted ─────────────────────────────────────────────────────────── */
 
 {
-  const notesCheckIdx = app.indexOf("if (!STATE.notes || !STATE.notes.trim())", app.indexOf('document.getElementById("saveEntryBtn").addEventListener'));
+  const notesCheckIdx = app.indexOf("if (!PACE_VISIT_WORKFLOW.validateCompletionNotes(STATE.notes).valid)", app.indexOf('document.getElementById("saveEntryBtn").addEventListener'));
   const branchIdx = app.indexOf("if (wasCompleting)", notesCheckIdx);
   assert.ok(notesCheckIdx > 0 && branchIdx > notesCheckIdx,
     "the notes check must run BEFORE the branch that decides completeVisit/updateVisit/createVisit — it is unconditional across Mark Complete, editing, and after-the-fact entry alike, not scoped to only one of them");

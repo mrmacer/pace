@@ -85,7 +85,7 @@ async function verifyDemoSameRowLifecycle() {
     CONFIG: { BEHAVIOR_SPECIALISTS: [], STORAGE_KEYS: { VISIT_CONTEXT: "unused" }, ...PACE_ROOM_TEST_CONFIG }
   });
   vm.runInContext(PACE_ROOM_HELPERS_SRC, context, { filename: "pace-room-helpers" });
-  for (const file of ["recent-activity.js", "demo-data.js", "pace-data.js"]) {
+  for (const file of ["recent-activity.js", "visit-workflow.js", "demo-data.js", "pace-data.js"]) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });
   }
   vm.runInContext("this.provider = PACE_DATA", context);

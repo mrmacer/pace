@@ -23,6 +23,9 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 const PACE_VISIT_CORRECTIONS = (() => {
+  // Notes rule lives in visit-workflow.js (one definition). Browser: the
+  // global loaded just before this file; Node tests: required directly.
+  const workflow = typeof PACE_VISIT_WORKFLOW !== "undefined" ? PACE_VISIT_WORKFLOW : require("./visit-workflow.js");
   const text = value => String(value ?? "").trim();
   const list = value => (Array.isArray(value) ? value : []).map(text).filter(Boolean);
   const collate = (a, b) => a.localeCompare(b);
@@ -70,10 +73,11 @@ const PACE_VISIT_CORRECTIONS = (() => {
     return Object.keys(changes).some(key => key !== "visitDate");
   }
 
-  // A completed visit needs meaningful Notes and both times; a correction
+  // A completed visit needs meaningful Notes (20+ letters/numbers) and both times; a correction
   // may never turn a completed visit into an open one.
   function completedVisitProblem(edited) {
-    if (!text(edited?.notes)) return "Add a brief note before submitting this PACE visit.";
+    const notes = workflow.validateCompletionNotes(edited?.notes);
+    if (!notes.valid) return notes.message;
     if (!text(edited?.timeIn) || !text(edited?.timeOut)) return "A completed visit needs both Time In and Time Out.";
     return "";
   }

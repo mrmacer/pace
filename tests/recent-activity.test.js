@@ -203,7 +203,7 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
   });
 
   vm.runInContext(PACE_ROOM_HELPERS_SRC, context, { filename: "pace-room-helpers" });
-  for (const file of ["recent-activity.js", "demo-data.js", "pace-data.js"]) {
+  for (const file of ["recent-activity.js", "visit-workflow.js", "demo-data.js", "pace-data.js"]) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });
   }
   vm.runInContext("this.testProvider = PACE_DATA", context);
@@ -220,6 +220,7 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
     timeOut: "09:42",
     durationMinutes: 27,
     behaviors: ["Needs a Break"],
+    notes: "Initial note describing the visit",
     staffMembers: ["Dana Fielding"],
     timestamp: `${TODAY}T09:42:00-04:00`
   });
@@ -239,7 +240,7 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
     behaviors: ["Peer conflict"],
     interventions: ["Restorative conversation"],
     scmUsed: true,
-    notes: "Updated same-day note",
+    notes: "Updated same-day note text",
     staffMembers: ["Marcus Webb", "Priya Anand"],
     cameFromTeacher: "Mr. Bellamy"
   });
@@ -264,7 +265,7 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
     Reason: "Peer conflict",
     "Intervention Used": "Restorative conversation",
     "SCM Used": true,
-    Notes: "Updated same-day note",
+    Notes: "Updated same-day note text",
     "Staff Member": "Marcus Webb, Priya Anand",
     "Teacher Came From": "Mr. Bellamy",
     "Submitted By": "Demo Staff",
@@ -337,7 +338,7 @@ async function verifyProductionReadIsDateBounded() {
     behaviors: ["Peer conflict"],
     interventions: ["Restorative conversation"],
     scmUsed: true,
-    notes: "Updated same-day note",
+    notes: "Updated same-day note text",
     staffMembers: ["Marcus Webb", "Priya Anand"],
     cameFromTeacher: "Mr. Bellamy"
   });
@@ -361,7 +362,7 @@ async function verifyProductionReadIsDateBounded() {
       Reason: "Peer conflict",
       "Intervention Used": "Restorative conversation",
       "SCM Used": true,
-      Notes: "Updated same-day note",
+      Notes: "Updated same-day note text",
       "Behavior Specialist": "Marcus Webb, Priya Anand",
       "Teacher Came From": "Mr. Bellamy"
     }

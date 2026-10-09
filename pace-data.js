@@ -151,6 +151,13 @@ const PACE_DATA = {
   },
 
   async createVisit(entry) {
+    // NOTES MINIMUM: an entry created already completed (after-the-fact
+    // entry — it carries a Time Out) must have compliant Notes. An open
+    // live-start entry (no Time Out) never needs them.
+    if (String(entry?.timeOut ?? "").trim()) {
+      const notes = PACE_VISIT_WORKFLOW.validateCompletionNotes(entry.notes);
+      if (!notes.valid) throw new Error(notes.message);
+    }
     if (APP_MODE === "demo") return DemoStorage.createVisit(entry);
     const result = await GRAPH.savePaceVisit(entry);
     rememberVisitContext(result?.id, entry);
@@ -233,6 +240,10 @@ const PACE_DATA = {
   // Time Out and completion-only fields are patched onto the same id.
   async completeVisit(id, entry) {
     if (!id) throw new Error("An open visit is required for completion.");
+    // NOTES MINIMUM: Mark Complete may not close a visit without compliant
+    // Notes, whatever UI path called this.
+    const notes = PACE_VISIT_WORKFLOW.validateCompletionNotes(entry?.notes);
+    if (!notes.valid) throw new Error(notes.message);
     const patch = {
       "Time Out":          entry.timeOut || "",
       "Duration":          entry.durationMinutes ?? null,

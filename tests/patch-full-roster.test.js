@@ -173,8 +173,8 @@ assert.ok(Number(sw.match(/CACHE_NAME = "pace-tracker-shell-v(\d+)"/)?.[1]) >= 1
   assert.doesNotMatch(selectSrc.replace(/\/\*[\s\S]*?\*\//g, ""), /GRAPH|PACE_DATA|fetch\(|localStorage|createMappedListItem|updateMappedListItem|_post|_patch/, "student-select.js code must not read or write anything external");
 
   /* 15: required-Notes behavior from 2806e32 remains intact */
-  assert.match(app, /if \(!STATE\.notes \|\| !STATE\.notes\.trim\(\)\)/);
-  assert.match(app, /Add a brief note before submitting this PACE visit\./);
+  assert.match(app, /if \(!PACE_VISIT_WORKFLOW\.validateCompletionNotes\(STATE\.notes\)\.valid\)/);
+  assert.match(app, /NOTES_REQUIREMENT_MESSAGE/);
   assert.match(html, /for="noteText">Notes\s*<span class="req">\*<\/span>/);
   assert.match(app, /notes: open \? "" : STATE\.notes/);
 

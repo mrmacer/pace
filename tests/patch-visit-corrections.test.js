@@ -55,7 +55,7 @@ function makeWorld({ deleteStatus = 204 } = {}) {
   const items = [
     { id: "42", createdDateTime: `${TODAY}T14:00:00Z`, fields: {
       Room: "PACE Room 1", Title: "Alex R.", Date: `${TODAY}T00:00:00Z`, TimeIn: "09:15", TimeOut: "09:42", Duration: 27,
-      Reason: "Needs a Break", InterventionUsed: "Check-in", SCMUsed: false, Notes: "Original note",
+      Reason: "Needs a Break", InterventionUsed: "Check-in", SCMUsed: false, Notes: "Original note about the visit",
       BehaviorSpecialist: "Dana Fielding", TeacherCameFrom: "Mrs. Ashford", EntryID: "sub-42", SubmittedBy: "Staff A"
     } },
     { id: "43", createdDateTime: `${TODAY}T14:10:00Z`, fields: {   // historically blank Notes
@@ -170,13 +170,13 @@ async function verifyEditPath() {
   world.calls.length = 0;
 
   // Notes-only edit.
-  entry.notes = "Corrected note";
+  entry.notes = "Corrected note about the support provided";
   await T.PACE_DATA.updateVisit(edit.itemId, entry);
   const writes = world.mutations();
   assert.equal(writes.length, 1, "exactly one write");
   assert.equal(writes[0].method, "PATCH", "edit uses PATCH, not POST");
   assert.equal(writes[0].rel, "sites/site-id/lists/list-pace/items/42/fields", "PATCH targets the original item id on IEP_Pace_Visits");
-  assert.deepEqual(plain(writes[0].body), { Notes: "Corrected note" }, "notes-only edit sends only Notes");
+  assert.deepEqual(plain(writes[0].body), { Notes: "Corrected note about the support provided" }, "notes-only edit sends only Notes");
   assert.equal(world.calls.some(c => c.method === "POST" || c.method === "DELETE"), false, "never POST or DELETE while editing");
   assert.deepEqual(world.items.map(i => i.id), ["42", "43", "44"], "no record was replaced: same ids, same count");
   const stored = world.items.find(i => i.id === "42").fields;
@@ -187,7 +187,7 @@ async function verifyEditPath() {
   const second = snapshotFor(T, (await recentVisit(T, "42")).visit);
   Object.assign(second.entry, {
     paceRoom: "pace-room-2", studentName: "Taylor S.", timeIn: "09:10", timeOut: "09:50",
-    behaviors: ["Peer conflict"], interventions: ["Break"], scmUsed: true, notes: "All changed",
+    behaviors: ["Peer conflict"], interventions: ["Break"], scmUsed: true, notes: "All fields were changed in this correction",
     staffMembers: ["Marcus Webb"], cameFromTeacher: "Mr. Bellamy"
   });
   world.calls.length = 0;
@@ -217,7 +217,7 @@ async function verifyTimeAndDuration() {
 
   // Notes-only: no Time Out fabricated, no Duration written.
   const again = snapshotFor(T, (await recentVisit(T, "42")).visit);
-  again.entry.notes = "Just a note";
+  again.entry.notes = "Just a note with enough detail here";
   world.calls.length = 0;
   await T.PACE_DATA.updateVisit("42", again.entry);
   const notesOnly = plain(world.mutations()[0].body);
@@ -242,15 +242,15 @@ async function verifyNotesRequired() {
     entry.notes = blank;
     entry.timeOut = "10:25"; // a real change, so only Notes can be the blocker
     world.calls.length = 0;
-    await assert.rejects(() => T.PACE_DATA.updateVisit("43", entry), /Add a brief note/, `blank Notes ${JSON.stringify(blank)} must fail`);
+    await assert.rejects(() => T.PACE_DATA.updateVisit("43", entry), /at least 20 letters or numbers/, `blank Notes ${JSON.stringify(blank)} must fail`);
     assert.equal(world.mutations().length, 0, "nothing was written for blank/whitespace Notes");
   }
 
   const fixed = snapshotFor(T, visit);
-  fixed.entry.notes = "Added the missing note";
+  fixed.entry.notes = "Added the missing note about support";
   world.calls.length = 0;
   await T.PACE_DATA.updateVisit("43", fixed.entry);
-  assert.deepEqual(plain(world.mutations()[0].body), { Notes: "Added the missing note" });
+  assert.deepEqual(plain(world.mutations()[0].body), { Notes: "Added the missing note about support" });
 
   // Guard against the "no changes" path becoming a silent empty PATCH.
   const unchanged = snapshotFor(T, (await recentVisit(T, "42")).visit);
@@ -421,8 +421,8 @@ function verifyRegressionsUntouched() {
   assert.match(app, /openExitScreen/);
   // Required Notes at save time, still ahead of the new edit guard.
   const save = app.slice(app.indexOf('getElementById("saveEntryBtn").addEventListener'));
-  assert.ok(save.indexOf("Add a brief note before submitting this PACE visit.") > 0);
-  assert.ok(save.indexOf("Add a brief note before submitting this PACE visit.") < save.indexOf("isPaceAuthorized()"), "required-Notes check runs before the edit guard");
+  assert.ok(save.indexOf("validateCompletionNotes(STATE.notes)") > 0);
+  assert.ok(save.indexOf("validateCompletionNotes(STATE.notes)") < save.indexOf("isPaceAuthorized()"), "required-Notes check runs before the edit guard");
   assert.match(app, /const entry = buildVisitEntry\(\);/);
   // Starting a live visit still does not need Notes.
   assert.match(app, /buildVisitEntry\(\{ open: true \}\)/);
@@ -435,7 +435,7 @@ function verifyRegressionsUntouched() {
   assert.match(read("iep-app-users.js"), /ENFORCE_APP_USERS:\s*false\b/);
   assert.match(app, /AUTH\.isAuthenticated/);
   // Service worker: bumped past v17, network-first, new file cached.
-  assert.match(sw, /CACHE_NAME = "pace-tracker-shell-v18"/);
+  assert.match(sw, /CACHE_NAME = "pace-tracker-shell-v19"/);
   assert.match(sw, /"\.\/visit-corrections\.js"/);
   assert.match(sw, /fetch\(event\.request\)/);
   assert.doesNotMatch(sw, /pace-tracker-shell-v17"/);

@@ -869,22 +869,40 @@ function renderNotesScreen() {
   noteText.value = STATE.notes || "";
   const errorEl = document.getElementById("notesError");
   if (errorEl) errorEl.classList.add("hidden");
+  updateNotesCounter();
+}
+
+// NOTES MINIMUM: live "n / 20 meaningful characters" counter, driven by the
+// same PACE_VISIT_WORKFLOW.validateCompletionNotes() the save guards use.
+function updateNotesCounter() {
+  const el = document.getElementById("notesCounter");
+  if (!el) return;
+  const result = PACE_VISIT_WORKFLOW.validateCompletionNotes(document.getElementById("noteText").value);
+  el.textContent = result.valid
+    ? `${result.count} / ${result.required} meaningful characters \u2713`
+    : `${result.count} / ${result.required} meaningful characters`;
+  el.classList.toggle("met", result.valid);
+}
+
+function showNotesRequirementError() {
+  const el = document.getElementById("notesError");
+  if (el) { el.textContent = PACE_VISIT_WORKFLOW.NOTES_REQUIREMENT_MESSAGE; el.classList.remove("hidden"); }
 }
 
 document.getElementById("noteText").addEventListener("input", event => {
   STATE.notes = event.target.value;
   document.getElementById("notesError")?.classList.add("hidden");
+  updateNotesCounter();
 });
 document.getElementById("notesNextBtn").addEventListener("click", () => {
-  const trimmed = document.getElementById("noteText").value.trim();
-  if (!trimmed) {
-    const el = document.getElementById("notesError");
-    if (el) { el.textContent = "Add a brief note before submitting this PACE visit."; el.classList.remove("hidden"); }
+  const raw = document.getElementById("noteText").value;
+  if (!PACE_VISIT_WORKFLOW.validateCompletionNotes(raw).valid) {
+    showNotesRequirementError();
     document.getElementById("noteText").focus();
     return;
   }
   document.getElementById("notesError")?.classList.add("hidden");
-  STATE.notes = trimmed;
+  STATE.notes = raw.trim();
   renderConfirmCard();
   nav("confirm", "forward");
 });
@@ -1018,13 +1036,12 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   // catches it if STATE changed upstream since then. Nothing already
   // entered is cleared — the user lands back on Notes with their draft
   // (specialists, student, reason, support, SCM, times) fully intact.
-  if (!STATE.notes || !STATE.notes.trim()) {
+  if (!PACE_VISIT_WORKFLOW.validateCompletionNotes(STATE.notes).valid) {
     nav("notes", "back");
     renderNotesScreen();
-    const el = document.getElementById("notesError");
-    if (el) { el.textContent = "Add a brief note before submitting this PACE visit."; el.classList.remove("hidden"); }
+    showNotesRequirementError();
     document.getElementById("noteText")?.focus();
-    showToast("Add a brief note before submitting this PACE visit.", "error");
+    showToast(PACE_VISIT_WORKFLOW.NOTES_REQUIREMENT_MESSAGE, "error");
     return;
   }
 

@@ -9,7 +9,7 @@
    "Unable to sync" retry screen when offline, per the app's design).
    ───────────────────────────────────────────────────────────────────────── */
 
-const CACHE_NAME = "pace-tracker-shell-v18"; // STAFF CORRECTIONS PATCH: new visit-corrections.js + index.html/app.js/graph.js/pace-data.js/demo-data.js/styles.css changed
+const CACHE_NAME = "pace-tracker-shell-v19"; // NOTES MINIMUM PATCH (20 meaningful chars); prior: STAFF CORRECTIONS PATCH: new visit-corrections.js + index.html/app.js/graph.js/pace-data.js/demo-data.js/styles.css changed
 const SHELL_FILES = [
   "./",
   "./index.html",

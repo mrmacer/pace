@@ -365,6 +365,8 @@ body[data-room="pace-room-2"] {
   width: 100%; font-size: 16px; padding: 14px 16px; border-radius: var(--radius);
   border: 1.5px solid var(--border); font-family: inherit; resize: none;
 }
+.notes-counter { font-size: 14px; font-weight: 600; color: var(--text-secondary, #64748b); margin: 8px 2px 0; }
+.notes-counter.met { color: var(--green, #15803d); }
 .hidden { display: none !important; }
 
 /* ── Confirm card ─────────────────────────────────────────────────────── */

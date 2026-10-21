@@ -1,6 +1,7 @@
 /* ─────────────────────────────────────────────────────────────────────────
-   NOTES MINIMUM PATCH — completed PACE visits need at least 20 letters or
-   numbers in Notes. One shared rule (PACE_VISIT_WORKFLOW.validateCompletionNotes)
+   NOTES MINIMUM PATCH — completed PACE visits need non-blank Notes (at
+   least 1 non-whitespace character; Issue #10 dropped the old 20-character
+   minimum). One shared rule (PACE_VISIT_WORKFLOW.validateCompletionNotes)
    enforced in the UI, the save handler, and the data layer. Open live-start
    visits never need Notes; historical records are never rewritten.
 
@@ -20,54 +21,45 @@ const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 const now = new Date();
 const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-const MESSAGE = "Please enter at least 20 letters or numbers describing the visit or support provided.";
+const MESSAGE = "Add a brief note before submitting this PACE visit.";
 
 /* ── 1. The validator itself ─────────────────────────────────────────── */
 
-const n19 = "a".repeat(19);
-const n20 = "a".repeat(20);
 const cases = [
   ["empty", "", 0, false],
   ["undefined", undefined, 0, false],
   ["null", null, 0, false],
-  ["single period", ".", 0, false],
-  ["single letter", "a", 1, false],
   ["whitespace-only", "   \n\t  ", 0, false],
-  ["punctuation-only", "!!! ... --- ??? ,,, ;;;", 0, false],
-  ["19 alphanumeric", n19, 19, false],
-  ["exactly 20 alphanumeric", n20, 20, true],
-  ["more than 20", "a".repeat(45), 45, true],
-  ["19 alphanumeric hidden in spaces/punctuation", "a b, c. d! e? f; g: h-i (j) k/l m n o p q r s", 19, false],
-  ["20 alphanumeric with punctuation and spaces", "Calm space, then back to class.", 24, true],
-  ["numbers count", "1234567890 1234567890", 20, true],
-  ["padding spaces never count", `   ${n19}   `, 19, false],
-  ["padding + 20", `\n  ${n20}  \n`, 20, true],
-  ["punctuation padding can't reach 20", `${n19}${"!".repeat(30)}`, 19, false]
+  ["single period", ".", 1, true],
+  ["single letter", "a", 1, true],
+  ["single digit", "7", 1, true],
+  ["padding spaces never count", "   ok   ", 2, true],
+  ["punctuation counts", "!!!", 3, true],
+  ["long note", "Calm space, then back to class.", 26, true]
 ];
 for (const [name, input, count, valid] of cases) {
   const result = Workflow.validateCompletionNotes(input);
   assert.equal(result.count, count, `${name}: count`);
   assert.equal(result.valid, valid, `${name}: valid`);
-  assert.equal(result.required, 20, `${name}: required`);
+  assert.equal(result.required, 1, `${name}: required`);
   assert.equal(result.message, valid ? "" : MESSAGE, `${name}: message`);
 }
 assert.equal(Workflow.NOTES_REQUIREMENT_MESSAGE, MESSAGE);
-assert.equal(Workflow.NOTES_MIN_MEANINGFUL, 20);
+assert.equal(Workflow.NOTES_MIN_MEANINGFUL, 1);
 
 // The validator measures only: it never mutates or returns rewritten text.
 assert.deepEqual(Object.keys(Workflow.validateCompletionNotes("abc")).sort(), ["count", "message", "required", "valid"]);
 
-/* ── 2. Edit/correction rule (historical short Notes must be fixed) ──── */
+/* ── 2. Edit/correction rule (Notes may not be blanked) ─────────────── */
 
 {
   const base = { timeIn: "09:00", timeOut: "09:30" };
-  // A historical record with a short note opened for editing may not save as-is.
-  assert.equal(Corrections.completedVisitProblem({ ...base, notes: "ok" }), MESSAGE);
   assert.equal(Corrections.completedVisitProblem({ ...base, notes: "" }), MESSAGE);
-  assert.equal(Corrections.completedVisitProblem({ ...base, notes: n19 }), MESSAGE);
-  assert.equal(Corrections.completedVisitProblem({ ...base, notes: n20 }), "");
+  assert.equal(Corrections.completedVisitProblem({ ...base, notes: "   " }), MESSAGE);
+  assert.equal(Corrections.completedVisitProblem({ ...base, notes: "ok" }), "");
+  assert.equal(Corrections.completedVisitProblem({ ...base, notes: "a" }), "");
   // Existing time rule unchanged.
-  assert.match(Corrections.completedVisitProblem({ timeIn: "09:00", timeOut: "", notes: n20 }), /both Time In and Time Out/);
+  assert.match(Corrections.completedVisitProblem({ timeIn: "09:00", timeOut: "", notes: "ok" }), /both Time In and Time Out/);
 }
 
 /* ── 3. Data layer (demo provider; zero Microsoft calls) ─────────────── */
@@ -124,39 +116,39 @@ async function verifyDemoDataLayer() {
   assert.equal(open.stored().length, 1, "open visit without Notes still saves");
   assert.equal(open.stored()[0].Notes, "");
 
-  // Mark Complete: rejected for every non-compliant value, row untouched.
+  // Mark Complete: rejected for blank Notes, row untouched.
   const mc = makeDemo();
   await mc.provider.createVisit(entry());
   const before = mc.raw();
-  for (const bad of ["", ".", "a", "   ", "!!!!!!!!!!!!!!!!!!!!!!!!!", n19]) {
+  for (const bad of ["", "   ", " \n\t "]) {
     await assert.rejects(
       () => mc.provider.completeVisit("v1", { timeOut: "09:30", durationMinutes: 30, interventions: ["Calm space"], scmUsed: true, notes: bad }),
-      /at least 20 letters or numbers/,
+      /Add a brief note/,
       `Mark Complete must reject ${JSON.stringify(bad)}`
     );
     assert.equal(mc.raw(), before, "a rejected completion must not touch the stored row");
   }
-  const original = "  Calm space, then back to class — went well!  ";
+  const original = "  ok  ";
   await mc.provider.completeVisit("v1", { timeOut: "09:30", durationMinutes: 30, interventions: ["Calm space"], scmUsed: true, notes: original });
   assert.equal(mc.stored()[0]["Time Out"], "09:30");
   assert.equal(mc.stored()[0].Notes, original, "Notes text is saved exactly as the caller supplied it — never rewritten");
 
   // After-the-fact entry (already has a Time Out).
   const aft = makeDemo();
-  for (const bad of ["", ".", "a", " \n ", "?!?!?!?!?!?!?!?!?!?!?!", n19]) {
+  for (const bad of ["", " \n ", "\t"]) {
     await assert.rejects(
       () => aft.provider.createVisit(entry({ id: "x", timeOut: "09:30", durationMinutes: 30, notes: bad })),
-      /at least 20 letters or numbers/,
+      /Add a brief note/,
       `after-the-fact entry must reject ${JSON.stringify(bad)}`
     );
   }
   assert.equal(aft.stored().length, 0, "no rejected after-the-fact entry was stored");
-  await aft.provider.createVisit(entry({ id: "ok20", timeOut: "09:30", durationMinutes: 30, notes: n20 }));
+  await aft.provider.createVisit(entry({ id: "ok1", timeOut: "09:30", durationMinutes: 30, notes: "a" }));
   await aft.provider.createVisit(entry({ id: "ok45", timeOut: "10:30", durationMinutes: 30, notes: "a".repeat(45) }));
-  assert.deepEqual(aft.stored().map(v => v.id), ["ok20", "ok45"]);
+  assert.deepEqual(aft.stored().map(v => v.id), ["ok1", "ok45"]);
 
-  // Editing a completed visit: historical short Notes remain visible/untouched
-  // until staff save a correction, and the save then requires compliant Notes.
+  // Editing a completed visit: short historical Notes are fine as-is; only
+  // blanking them is refused.
   const historical = {
     id: "old", demo: true, Room: "PACE Room 1", Student: "Jordan M.", Date: TODAY,
     "Time In": "08:00", "Time Out": "08:20", Duration: 20, Reason: "Needs a Break",
@@ -173,17 +165,16 @@ async function verifyDemoDataLayer() {
     behaviors: ["Needs a Break"], interventions: ["Calm space"], scmUsed: false, notes: "ok",
     staffMembers: ["Dana Fielding"], cameFromTeacher: "Mrs. Ashford"
   };
-  // Edit something else but leave the short note: rejected.
+  // Blanking the note: rejected, nothing written.
   await assert.rejects(
-    () => edit.provider.updateVisit("old", { ...snapshot, original: snapshot, scmUsed: true }),
-    /at least 20 letters or numbers/
+    () => edit.provider.updateVisit("old", { ...snapshot, original: snapshot, notes: "   " }),
+    /Add a brief note/
   );
   assert.equal(edit.raw(), seeded, "rejected edit wrote nothing");
-  // 19 alphanumerics: rejected. 20: saved.
-  await assert.rejects(() => edit.provider.updateVisit("old", { ...snapshot, original: snapshot, notes: n19 }), /at least 20/);
-  const fixedNote = "Reviewed plan with student; returned to class.";
-  await edit.provider.updateVisit("old", { ...snapshot, original: snapshot, notes: fixedNote });
-  assert.equal(edit.stored()[0].Notes, fixedNote);
+  // Edit something else and keep the short note: saved.
+  await edit.provider.updateVisit("old", { ...snapshot, original: snapshot, scmUsed: true });
+  assert.equal(edit.stored()[0]["SCM Used"], true);
+  assert.equal(edit.stored()[0].Notes, "ok");
   assert.equal(edit.stored().length, 1, "edit updates in place");
 
   for (const instance of [open, mc, aft, edit]) assert.equal(instance.microsoftCalls(), 0, "demo mode never calls Microsoft");
@@ -192,14 +183,9 @@ async function verifyDemoDataLayer() {
 /* ── 4. UI + save-handler structure ──────────────────────────────────── */
 
 {
-  // Live counter markup and wiring.
-  assert.match(html, /id="notesCounter"[^>]*>0 \/ 20 meaningful characters<\/p>/, "counter starts at 0 / 20");
-  assert.match(app, /function updateNotesCounter\(\)/);
-  const inputHandler = app.slice(app.indexOf('document.getElementById("noteText").addEventListener("input"'));
-  assert.ok(inputHandler.slice(0, 300).includes("updateNotesCounter()"), "counter updates as the user types");
-  assert.match(app, /meaningful characters/);
-  assert.match(app, /classList\.toggle\("met", result\.valid\)/, "success indicator when satisfied");
-  assert.match(app, /function renderNotesScreen\(\)[\s\S]{0,1200}updateNotesCounter\(\)/, "counter is correct when the screen is reopened with an existing draft");
+  // Issue #10: the character counter is gone (meaningless at a 1-char minimum).
+  assert.doesNotMatch(html, /notesCounter/, "no character counter on the Notes screen");
+  assert.doesNotMatch(app, /updateNotesCounter|meaningful characters/);
 
   // Requirement message is shown inline, user stays on Notes, draft preserved.
   const next = app.slice(app.indexOf('document.getElementById("notesNextBtn").addEventListener'));
@@ -224,11 +210,11 @@ async function verifyDemoDataLayer() {
 
   // Start Visit path: unreachable from Notes, no Notes validation there.
   const live = app.slice(app.indexOf("async function saveLiveVisit()"));
-  assert.doesNotMatch(live.slice(0, live.indexOf("\n}\n")), /Notes|notes/);
+  assert.doesNotMatch(live.slice(0, live.search(/\r?\n\}\r?\n/)), /Notes|notes/);
 
   // Single definition of the rule: no second hand-rolled length check in app.js.
   assert.doesNotMatch(app, /notes.{0,40}length\s*[<>]=?\s*\d/i);
-  assert.match(fs.readFileSync(path.join(ROOT, "visit-workflow.js"), "utf8"), /\\p\{L\}\\p\{N\}/);
+  assert.match(fs.readFileSync(path.join(ROOT, "visit-workflow.js"), "utf8"), /NOTES_MIN_MEANINGFUL: 1,/);
 }
 
 /* ── 5. Safety: nothing outside this app / its data rules was touched ── */

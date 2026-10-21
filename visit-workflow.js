@@ -18,28 +18,27 @@ const PACE_VISIT_WORKFLOW = {
 
   // NOTES MINIMUM: the one reusable rule for completed-visit Notes. A
   // completed visit (Mark Complete, after-the-fact entry, or an edit of a
-  // completed visit) needs at least NOTES_MIN_MEANINGFUL letters/numbers.
-  // Whitespace and punctuation never count. This only measures — it never
-  // rewrites, trims into, or generates note text; callers save what the
-  // user typed.
-  NOTES_MIN_MEANINGFUL: 20,
-  NOTES_REQUIREMENT_MESSAGE: "Please enter at least 20 letters or numbers describing the visit or support provided.",
+  // completed visit) needs at least NOTES_MIN_MEANINGFUL non-whitespace
+  // characters — i.e. Notes just can't be blank (Issue #10 dropped the old
+  // 20-character minimum). This only measures — it never rewrites, trims
+  // into, or generates note text; callers save what the user typed.
+  NOTES_MIN_MEANINGFUL: 1,
+  NOTES_REQUIREMENT_MESSAGE: "Add a brief note before submitting this PACE visit.",
 
   ///////////////////////////////////////////////////////////////////////////////////////////////
   // Function Name: countMeaningfulChars
-  // Description: Counts the letters and numbers in a Notes value after trimming; whitespace and
-  //              punctuation are ignored.
+  // Description: Counts the non-whitespace characters in a Notes value.
   // Parameters: any notes - the Notes text to measure - input
   ///////////////////////////////////////////////////////////////////////////////////////////////
   countMeaningfulChars(notes) {
-    const matches = String(notes ?? "").trim().match(/[\p{L}\p{N}]/gu);
+    const matches = String(notes ?? "").match(/\S/gu);
     return matches ? matches.length : 0;
   },
 
   ///////////////////////////////////////////////////////////////////////////////////////////////
   // Function Name: validateCompletionNotes
   // Description: The single Notes rule for completed visits: at least NOTES_MIN_MEANINGFUL
-  //              letters/numbers. Returns { valid, count, required, message } and never
+  //              non-whitespace characters. Returns { valid, count, required, message } and never
   //              alters the text.
   // Parameters: any notes - the Notes text to validate - input
   ///////////////////////////////////////////////////////////////////////////////////////////////

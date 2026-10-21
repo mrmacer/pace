@@ -242,7 +242,7 @@ async function verifyNotesRequired() {
     entry.notes = blank;
     entry.timeOut = "10:25"; // a real change, so only Notes can be the blocker
     world.calls.length = 0;
-    await assert.rejects(() => T.PACE_DATA.updateVisit("43", entry), /at least 20 letters or numbers/, `blank Notes ${JSON.stringify(blank)} must fail`);
+    await assert.rejects(() => T.PACE_DATA.updateVisit("43", entry), /Add a brief note/, `blank Notes ${JSON.stringify(blank)} must fail`);
     assert.equal(world.mutations().length, 0, "nothing was written for blank/whitespace Notes");
   }
 
@@ -435,7 +435,7 @@ function verifyRegressionsUntouched() {
   assert.match(read("iep-app-users.js"), /ENFORCE_APP_USERS:\s*false\b/);
   assert.match(app, /AUTH\.isAuthenticated/);
   // Service worker: bumped past v17, network-first, new file cached.
-  assert.match(sw, /CACHE_NAME = "pace-tracker-shell-v19"/);
+  assert.match(sw, /CACHE_NAME = "pace-tracker-shell-v20"/);
   assert.match(sw, /"\.\/visit-corrections\.js"/);
   assert.match(sw, /fetch\(event\.request\)/);
   assert.doesNotMatch(sw, /pace-tracker-shell-v17"/);

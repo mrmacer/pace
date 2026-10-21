@@ -1161,19 +1161,6 @@ function renderNotesScreen() {
     : "Describe what happened and where (e.g., Wiggle Room, classroom check-in, a walk)…";
   const errorEl = document.getElementById("notesError");
   if (errorEl) errorEl.classList.add("hidden");
-  updateNotesCounter();
-}
-
-// NOTES MINIMUM: live "n / 20 meaningful characters" counter, driven by the
-// same PACE_VISIT_WORKFLOW.validateCompletionNotes() the save guards use.
-function updateNotesCounter() {
-  const el = document.getElementById("notesCounter");
-  if (!el) return;
-  const result = PACE_VISIT_WORKFLOW.validateCompletionNotes(document.getElementById("noteText").value);
-  el.textContent = result.valid
-    ? `${result.count} / ${result.required} meaningful characters \u2713`
-    : `${result.count} / ${result.required} meaningful characters`;
-  el.classList.toggle("met", result.valid);
 }
 
 function showNotesRequirementError() {
@@ -1184,7 +1171,6 @@ function showNotesRequirementError() {
 document.getElementById("noteText").addEventListener("input", event => {
   STATE.notes = event.target.value;
   document.getElementById("notesError")?.classList.add("hidden");
-  updateNotesCounter();
 });
 document.getElementById("notesNextBtn").addEventListener("click", () => {
   const raw = document.getElementById("noteText").value;

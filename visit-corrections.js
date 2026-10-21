@@ -125,7 +125,7 @@ const PACE_VISIT_CORRECTIONS = (() => {
     return Object.keys(changes).some(key => key !== "visitDate");
   }
 
-  // A completed visit needs meaningful Notes (20+ letters/numbers) and both times; a correction
+  // A completed visit needs non-blank Notes and both times; a correction
   // may never turn a completed visit into an open one.
   ///////////////////////////////////////////////////////////////////////////////////////////////
   // Function Name: completedVisitProblem

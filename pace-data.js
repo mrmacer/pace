@@ -6,8 +6,9 @@
 //          selecting either DemoStorage or GRAPH according to APP_MODE, so both modes render
 //          and behave identically. UI room comparisons use internal ids (e.g. pace-room-1);
 //          normalizeRoomOnRead() converts SharePoint's room labels back into those ids before
-//          data reaches other modules. Production-only context storage never stores student
-//          names or notes.
+//          data reaches other modules. Production-only visit-context storage never stores
+//          student names or notes; app.js separately keeps only unsaved active-note text as a
+//          recovery buffer keyed by the existing provider item id.
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 // PATCH 010: same comma-join convention as Reason/Intervention Used
@@ -268,7 +269,7 @@ const PACE_DATA = {
   //             Object entry - new logical values, optionally including `original` for a
   //             correction - input
   ///////////////////////////////////////////////////////////////////////////////////////////////
-  async updateVisit(id, entry) {
+  async updateVisit(id, entry, requestOptions = {}) {
     if (!id) throw new Error("A visit is required for editing.");
     const isCorrection = Boolean(entry?.original);
     const changes = isCorrection
@@ -307,7 +308,7 @@ const PACE_DATA = {
       if (has("cameFromTeacher")) patch["Teacher Came From"] = changes.cameFromTeacher || "";
       return DemoStorage.updateVisit(id, patch);
     }
-    const result = await GRAPH.updatePaceVisit(id, changes);
+    const result = await GRAPH.updatePaceVisit(id, changes, requestOptions);
     rememberVisitContext(id, changes);
     return result;
   },

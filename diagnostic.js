@@ -34,9 +34,9 @@ const DIAGNOSTIC_CONCEPTS = [
 const Diagnostic = {
   ///////////////////////////////////////////////////////////////////////////////////////////////
   // Function Name: run
-  // Description: Fetches the live SharePoint list schema and the most recently submitted
-  //   PACE visit, then reduces both to metadata only (column names/types and
-  //   populated/blank status) for the diagnostic report.
+  // Description: Fetches only the live SharePoint list schema and reduces it to metadata
+  //   only (column names/types) for the diagnostic report. It deliberately does not read
+  //   any visit rows, student records, or note contents.
   // Parameters: none
   ///////////////////////////////////////////////////////////////////////////////////////////////
   async run() {
@@ -51,10 +51,23 @@ const Diagnostic = {
     // graph.js doesn't have a "columns with type" helper (getListSchema()
     // only pulls name/displayName) — this is the one new read-only GET,
     // same endpoint pattern as everything else in graph.js.
-    const resp = await fetch(
-      `${GRAPH._BASE}/sites/${siteId}/lists/${listId}/columns`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timeout = setTimeout(() => controller?.abort(), 15000);
+    let resp;
+    try {
+      resp = await fetch(
+        `${GRAPH._BASE}/sites/${siteId}/lists/${listId}/columns`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          ...(controller ? { signal: controller.signal } : {})
+        }
+      );
+    } catch (err) {
+      if (err?.name === "AbortError") throw new Error("Column metadata request timed out.");
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!resp.ok) throw new Error(`Column fetch failed: ${resp.status}`);
     const data = await resp.json();
 
@@ -85,21 +98,7 @@ const Diagnostic = {
         : { concept, status: "NOT FOUND" };
     });
 
-    // Most recent visit: field NAMES and POPULATED/BLANK only. The actual
-    // value is read only long enough to test truthiness, then discarded —
-    // it is never stored, returned, or displayed.
-    const visits = await GRAPH.getPaceVisitsByDisplayName();
-    let latestFields = null;
-    if (visits.length > 0) {
-      const latest = [...visits].sort((a, b) =>
-        String(b["Submitted At"] || "").localeCompare(String(a["Submitted At"] || ""))
-      )[0];
-      latestFields = Object.keys(latest)
-        .filter(k => k !== "id")
-        .map(k => ({ field: k, status: String(latest[k] ?? "").trim() ? "POPULATED" : "BLANK" }));
-    }
-
-    return { columns, conceptMap, latestFields, visitCount: visits.length };
+    return { columns, conceptMap, latestFields: null, visitCount: null };
   },
 
   ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -127,12 +126,8 @@ const Diagnostic = {
         : `${c.concept}: NOT FOUND`);
     });
     lines.push("");
-    lines.push(`=== C. Most recent visit (${result.visitCount} total row(s) in list) ===`);
-    if (result.latestFields) {
-      result.latestFields.forEach(f => lines.push(`${f.field}: ${f.status}`));
-    } else {
-      lines.push("No visits found in the list.");
-    }
+    lines.push("=== C. Visit data not fetched ===");
+    lines.push("This metadata-only diagnostic does not read student records or note contents.");
     return lines.join("\n");
   }
 };

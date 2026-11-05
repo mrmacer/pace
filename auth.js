@@ -165,14 +165,14 @@ const AUTH = {
 
   ///////////////////////////////////////////////////////////////////////////////////////////////
   // Function Name: _clearLocalSessionState
-  // Description: Removes app-owned keys (last room, visit context) from localStorage while
+  // Description: Removes app-owned keys (last room, visit context, unsaved note drafts) from localStorage while
   //              leaving unrelated stored settings untouched.
   // Parameters: none
   ///////////////////////////////////////////////////////////////////////////////////////////////
   _clearLocalSessionState() {
     if (typeof localStorage === "undefined" || typeof CONFIG === "undefined") return;
     const keys = CONFIG.STORAGE_KEYS || {};
-    [keys.LAST_ROOM, keys.VISIT_CONTEXT]
+    [keys.LAST_ROOM, keys.VISIT_CONTEXT, keys.ACTIVE_NOTE_DRAFTS]
       .filter(Boolean)
       .forEach(key => localStorage.removeItem(key));
   },

@@ -14,7 +14,7 @@ PATCH 008 exposes two intentionally separate entry paths:
 
 ```
 START VISIT:
-Room → Specialist → Student → Teacher Came From → Reason → Time In → Start
+Room → Specialist → Student → Teacher Came From → Reason → Time In → Visit Notes → Start
 
 LOG COMPLETED VISIT:
 Room → Specialist → Student → Teacher Came From → Date/Times → Reason →
@@ -25,10 +25,12 @@ Currently in PACE → Time Out → Support → SCM → Notes → Confirm → Com
 ```
 
 Starting creates one open `IEP_Pace_Visits` row with completion fields
-blank. Mark Complete patches that same item id; it never creates a second
-row. Completed-entry saves still return to Student Search for rapid
-back-to-back logging. A live start or completion returns to the room so
-the Currently in PACE list updates immediately.
+blank; optional Visit Notes entered before start are carried into that row.
+The active Currently in PACE card keeps the same multiline Notes editor
+available for continued documentation. Mark Complete patches that same item
+id; it never creates a second row. Completed-entry saves still return to
+Student Search for rapid back-to-back logging. A live start or completion
+returns to the room so the Currently in PACE list updates immediately.
 
 **PATCH 004 introduced a homeroom-Teacher-grouped Student screen (Room →
 Specialist → Teacher → filtered Student list) — PATCH 006 removed it.** The
@@ -139,13 +141,17 @@ Microsoft Graph, MSAL, or SharePoint**.
   localStorage row with zero Microsoft traffic. Production patches every
   writable live `IEP_Pace_Visits` field; the known missing columns and
   Person-field specialist limitation below still apply.
-- **Live visits + same-row completion (PATCH 008)** — demo creates an open
-  localStorage row (`Time Out`, Duration, Intervention, SCM, and Notes are
-  blank), renders it in Currently in PACE for its room, and later updates
-  that exact row through `PACE_DATA.completeVisit()`. The completed row
-  disappears from Currently in PACE and becomes eligible for Recent
-  Activity immediately. Stable entry IDs plus the UI saving lock prevent
-  rapid double-tap duplicates.
+- **Live visits + same-row completion (PATCH 008 / Live Visit Notes)** —
+  demo creates an open localStorage row, including any optional notes typed
+  before start, renders it in Currently in PACE for its room, and later
+  updates that exact row through `PACE_DATA.completeVisit()`. The active card
+  also supports continued note editing through `PACE_DATA.updateVisit()`;
+  saves show Saving, Saved, or Save failed — Retry. The newest text version
+  wins, an unsaved recovery copy is keyed only by the existing item id, and a
+  successful save removes that local copy. The completed row disappears from
+  Currently in PACE and becomes eligible for Recent Activity immediately.
+  Stable entry IDs plus the UI saving lock prevent rapid double-tap
+  duplicates.
 - **Hard safety block** — `GRAPH._get/_post/_patch` (the only three
   functions that ever call `fetch()` against Microsoft endpoints) throw
   immediately in demo mode via `assertGraphAllowed()`, so this is a single

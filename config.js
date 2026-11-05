@@ -86,7 +86,11 @@ const CONFIG = {
   // beyond the current in-progress entry, per section 23 of the spec).
   STORAGE_KEYS: {
     LAST_ROOM: "paceTracker_lastRoom",
-    VISIT_CONTEXT: "paceTracker_visitContext"
+    VISIT_CONTEXT: "paceTracker_visitContext",
+    // Only notes that have not yet been confirmed by SharePoint are kept
+    // here, keyed by the existing visit item id. Successful saves remove
+    // the entry; this is a recovery buffer, not a second visit store.
+    ACTIVE_NOTE_DRAFTS: "paceTracker_activeNoteDrafts"
   },
 
   // Room identifiers. `id` (a raw slug) is what every internal comparison

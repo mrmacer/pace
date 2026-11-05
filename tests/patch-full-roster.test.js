@@ -174,11 +174,12 @@ assert.ok(Number(sw.match(/CACHE_NAME = "pace-tracker-shell-v(\d+)"/)?.[1]) >= 1
   /* 14: no SharePoint write behavior touched — the module is pure */
   assert.doesNotMatch(selectSrc.replace(/\/\*[\s\S]*?\*\//g, ""), /GRAPH|PACE_DATA|fetch\(|localStorage|createMappedListItem|updateMappedListItem|_post|_patch/, "student-select.js code must not read or write anything external");
 
-  /* 15: required-Notes behavior from 2806e32 remains intact */
+  /* 15: required completed-visit Notes behavior remains intact; open rows
+     may carry optional pre-start notes. */
   assert.match(app, /if \(!PACE_VISIT_WORKFLOW\.validateCompletionNotes\(STATE\.notes\)\.valid\)/);
   assert.match(app, /NOTES_REQUIREMENT_MESSAGE/);
   assert.match(html, /for="noteText">Notes\s*<span class="req">\*<\/span>/);
-  assert.match(app, /notes: open \? "" : STATE\.notes/);
+  assert.match(app, /notes: STATE\.notes/);
 
   console.log("Full-roster Select Student tests passed.");
 })().catch(error => {

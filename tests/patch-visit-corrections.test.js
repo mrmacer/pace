@@ -424,10 +424,11 @@ function verifyRegressionsUntouched() {
   assert.ok(save.indexOf("validateCompletionNotes(STATE.notes)") > 0);
   assert.ok(save.indexOf("validateCompletionNotes(STATE.notes)") < save.indexOf("isPaceAuthorized()"), "required-Notes check runs before the edit guard");
   assert.match(app, /const entry = buildVisitEntry\(\);/);
-  // Starting a live visit still does not need Notes.
+  // Starting a live visit still does not require the completed-visit Notes
+  // minimum, but any optional pre-start text is carried into the open row.
   assert.match(app, /buildVisitEntry\(\{ open: true \}\)/);
   const entrySrc = app.slice(app.indexOf("function buildVisitEntry("));
-  assert.match(entrySrc.slice(0, entrySrc.indexOf("\n}\n")), /notes: open \? "" : STATE\.notes/);
+  assert.match(entrySrc.slice(0, entrySrc.indexOf("\n}\n")), /notes: STATE\.notes/);
   // Full roster module still present and wired.
   assert.ok(fs.existsSync(path.join(ROOT, "student-select.js")));
   assert.match(html, /<script src="student-select\.js"><\/script>/);
@@ -435,7 +436,7 @@ function verifyRegressionsUntouched() {
   assert.match(read("iep-app-users.js"), /ENFORCE_APP_USERS:\s*false\b/);
   assert.match(app, /AUTH\.isAuthenticated/);
   // Service worker: bumped past v17, network-first, new file cached.
-  assert.match(sw, /CACHE_NAME = "pace-tracker-shell-v20"/);
+  assert.ok(Number(sw.match(/CACHE_NAME = "pace-tracker-shell-v(\d+)"/)?.[1]) >= 19, "cache version must stay bumped (v19 or later)");
   assert.match(sw, /"\.\/visit-corrections\.js"/);
   assert.match(sw, /fetch\(event\.request\)/);
   assert.doesNotMatch(sw, /pace-tracker-shell-v17"/);

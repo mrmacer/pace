@@ -69,6 +69,9 @@ document.querySelectorAll("[data-nav]").forEach(btn => {
     // Read the target at click time. Same-day editing temporarily changes
     // the Specialist screen's Cancel destination from Room to Recent.
     const target = btn.dataset.nav;
+    if (target === "room" && isCompletingVisit() && STATE.completionTarget?.id) {
+      resumeActiveNoteDraft(STATE.completionTarget.id);
+    }
     if (target === "recent" && isEditingVisit()) {
       resetTrip();
       document.querySelector('[data-screen="specialist"] .btn-back').dataset.nav = "room";
@@ -259,6 +262,316 @@ const STATE = {
   exitTarget: null,       // the open-visit row being closed
   duplicateTarget: null   // the open-visit row that blocked a new entry
 };
+
+// Live-visit note drafts are keyed only by the existing provider item id.
+// The SharePoint row remains the source of truth; this map coordinates the
+// visible editor and protects newer text from an older async PATCH. The
+// local recovery copy is used only while a draft is unsaved or a save failed.
+const ACTIVE_NOTE_DRAFTS = new Map();
+// Incremented when the authenticated session is discarded. Any in-flight
+// provider response from the prior session becomes unable to update the new
+// session's UI or re-create a cleared local recovery buffer.
+const ACTIVE_NOTE_SESSION = { generation: 0 };
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: activeNoteDraftStorageKey
+// Description: Returns the device-local key for unsaved active-visit notes, isolated between
+//              demo and production modes.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
+function activeNoteDraftStorageKey() {
+  if (APP_MODE === "demo") return `${DEMO_CONFIG.storageKey}:activeNoteDrafts`;
+  return CONFIG.STORAGE_KEYS.ACTIVE_NOTE_DRAFTS;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadActiveNoteDrafts
+// Description: Loads the recovery buffer for unsaved active-visit notes without importing any
+//              student identity or other visit fields.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
+function loadActiveNoteDrafts() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(activeNoteDraftStorageKey()) || "{}");
+    Object.entries(raw || {}).forEach(([id, value]) => {
+      if (!id || typeof value !== "string") return;
+      ACTIVE_NOTE_DRAFTS.set(String(id), {
+        value,
+        savedValue: "",
+        version: 0,
+        status: "unsaved",
+        error: "",
+        timer: null,
+        inFlight: null,
+        controller: null,
+        suspended: false
+      });
+    });
+  } catch {
+    // A malformed recovery buffer must never prevent the visit screen from opening.
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: persistActiveNoteDrafts
+// Description: Stores only note text for drafts not yet confirmed by the provider; an empty
+//              recovery buffer removes the local key.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
+function persistActiveNoteDrafts() {
+  try {
+    const stored = {};
+    ACTIVE_NOTE_DRAFTS.forEach((draft, id) => {
+      if (draft.status !== "saved" && draft.value !== draft.savedValue) stored[id] = draft.value;
+    });
+    if (Object.keys(stored).length === 0) localStorage.removeItem(activeNoteDraftStorageKey());
+    else localStorage.setItem(activeNoteDraftStorageKey(), JSON.stringify(stored));
+  } catch {
+    // Provider persistence remains authoritative. If local recovery storage
+    // is unavailable, the UI still reports the provider save state honestly.
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: removeActiveNoteDraft
+// Description: Removes a draft after a confirmed save or after the row leaves the open-visit
+//              list through completion.
+// Parameters: string|number id - provider item id - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function removeActiveNoteDraft(id) {
+  const key = String(id || "");
+  const draft = ACTIVE_NOTE_DRAFTS.get(key);
+  if (draft?.timer) clearTimeout(draft.timer);
+  ACTIVE_NOTE_DRAFTS.delete(key);
+  persistActiveNoteDrafts();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: discardActiveNoteDrafts
+// Description: Clears local active-note recovery state during sign-out and invalidates pending
+//              callbacks from the signed-out session.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
+function discardActiveNoteDrafts() {
+  ACTIVE_NOTE_SESSION.generation += 1;
+  ACTIVE_NOTE_DRAFTS.forEach(draft => {
+    if (draft.timer) clearTimeout(draft.timer);
+    if (draft.controller) draft.controller.abort();
+  });
+  ACTIVE_NOTE_DRAFTS.clear();
+  try { localStorage.removeItem(activeNoteDraftStorageKey()); } catch { /* storage may be unavailable */ }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: activeNoteDraftFor
+// Description: Hydrates one active visit's editable note value from memory, the recovery
+//              buffer, or the provider row, in that order.
+// Parameters: object visit - display-name-keyed active visit row - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function activeNoteDraftFor(visit) {
+  const id = String(visit?.id || "");
+  if (!id) return null;
+  const providerNotes = String(visit.Notes ?? "");
+  let draft = ACTIVE_NOTE_DRAFTS.get(id);
+  if (!draft) {
+    draft = {
+      value: providerNotes,
+      savedValue: providerNotes,
+      version: 0,
+      status: "saved",
+      error: "",
+      timer: null,
+      inFlight: null,
+      controller: null,
+      suspended: false
+    };
+    ACTIVE_NOTE_DRAFTS.set(id, draft);
+  } else if (!draft.inFlight && !draft.suspended && draft.status === "saved") {
+    draft.value = providerNotes;
+    draft.savedValue = providerNotes;
+  }
+  return draft;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: activeNoteStatusText
+// Description: Returns the truthful visible state for an active note save.
+// Parameters: object draft - active note draft state - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function activeNoteStatusText(draft) {
+  if (!draft) return "";
+  if (draft.status === "saving") return "Saving…";
+  if (draft.status === "failed") return "Save failed — tap Retry";
+  if (draft.status === "unsaved") return "Unsaved draft";
+  return "Saved";
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: updateActiveNoteStatus
+// Description: Updates one active-note editor's status and button without replacing the
+//              textarea, preserving the iPad cursor and keyboard state.
+// Parameters: string|number id - provider item id - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function updateActiveNoteStatus(id) {
+  const key = String(id || "");
+  const draft = ACTIVE_NOTE_DRAFTS.get(key);
+  const card = [...document.querySelectorAll("[data-active-note-id]")]
+    .find(element => element.dataset.activeNoteId === key);
+  if (!card || !draft) return;
+  const status = card.querySelector(".active-note-status");
+  const button = card.querySelector(".active-note-save");
+  if (status) {
+    status.textContent = activeNoteStatusText(draft);
+    status.classList.toggle("saved", draft.status === "saved");
+    status.classList.toggle("failed", draft.status === "failed");
+  }
+  if (button) {
+    button.disabled = draft.status === "saving";
+    button.textContent = draft.status === "failed" ? "Retry" : (draft.status === "saving" ? "Saving…" : "Save notes");
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: saveActiveVisitNotes
+// Description: Patches only Notes on one existing open visit, serializing saves per row and
+//              ignoring stale responses so an older request cannot overwrite newer text.
+// Parameters: string|number id - provider item id - input
+//             object visit - current provider row, used for the local date - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function saveActiveVisitNotes(id, visit) {
+  const key = String(id || "");
+  const draft = ACTIVE_NOTE_DRAFTS.get(key);
+  if (!draft || draft.suspended) return Promise.resolve();
+  if (draft.inFlight) return draft.inFlight;
+  if (draft.value === draft.savedValue) {
+    draft.status = "saved";
+    draft.error = "";
+    persistActiveNoteDrafts();
+    updateActiveNoteStatus(key);
+    return Promise.resolve();
+  }
+
+  const versionAtSend = draft.version;
+  const noteAtSend = draft.value;
+  const sessionGeneration = ACTIVE_NOTE_SESSION.generation;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  draft.controller = controller;
+  draft.status = "saving";
+  draft.error = "";
+  updateActiveNoteStatus(key);
+
+  const request = PACE_DATA.updateVisit(key, {
+    date: dateOnly(visit?.Date),
+    notes: noteAtSend
+  }, controller ? { signal: controller.signal } : undefined).then(() => {
+    if (sessionGeneration !== ACTIVE_NOTE_SESSION.generation) return;
+    // The provider confirmed this exact version. If the user typed again
+    // while it was in flight, leave the newer text unsaved and queue it.
+    if (draft.version === versionAtSend && draft.value === noteAtSend) {
+      draft.savedValue = noteAtSend;
+      draft.status = "saved";
+      draft.error = "";
+      persistActiveNoteDrafts();
+    } else {
+      draft.status = "unsaved";
+      persistActiveNoteDrafts();
+    }
+    updateActiveNoteStatus(key);
+  }).catch(err => {
+    if (sessionGeneration !== ACTIVE_NOTE_SESSION.generation) throw err;
+    if (draft.version === versionAtSend) {
+      draft.status = "failed";
+      draft.error = err?.message || "Unable to save notes.";
+      persistActiveNoteDrafts();
+      updateActiveNoteStatus(key);
+    }
+    throw err;
+  }).finally(() => {
+    if (draft.controller === controller) draft.controller = null;
+    draft.inFlight = null;
+    if (sessionGeneration !== ACTIVE_NOTE_SESSION.generation) return;
+    if (!draft.suspended && draft.value !== draft.savedValue && draft.status !== "failed") {
+      scheduleActiveNoteSave(key, visit);
+    }
+  });
+  draft.inFlight = request;
+  return request;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: scheduleActiveNoteSave
+// Description: Debounces active-note persistence so normal typing does not issue one PATCH per
+//              keystroke while still saving drafts during an ordinary pause.
+// Parameters: string|number id - provider item id - input
+//             object visit - current provider row - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function scheduleActiveNoteSave(id, visit) {
+  const key = String(id || "");
+  const draft = ACTIVE_NOTE_DRAFTS.get(key);
+  if (!draft || draft.suspended) return;
+  if (draft.timer) clearTimeout(draft.timer);
+  draft.timer = setTimeout(() => {
+    draft.timer = null;
+    saveActiveVisitNotes(key, visit).catch(() => {});
+  }, 650);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: changeActiveNoteDraft
+// Description: Records new text immediately in memory and the recovery buffer, then schedules
+//              a provider PATCH for the current active visit.
+// Parameters: string|number id - provider item id - input
+//             string value - textarea value - input
+//             object visit - current provider row - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function changeActiveNoteDraft(id, value, visit) {
+  const draft = activeNoteDraftFor(visit);
+  if (!draft) return;
+  draft.value = String(value ?? "");
+  draft.version += 1;
+  draft.status = draft.value === draft.savedValue ? "saved" : "unsaved";
+  draft.error = "";
+  persistActiveNoteDrafts();
+  updateActiveNoteStatus(id);
+  scheduleActiveNoteSave(id, visit);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: flushActiveNoteSave
+// Description: Waits for an active-note PATCH already in flight before opening completion, so
+//              a late draft request cannot land after the final completion write.
+// Parameters: string|number id - provider item id - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+async function flushActiveNoteSave(id, visit) {
+  const key = String(id || "");
+  const draft = ACTIVE_NOTE_DRAFTS.get(key);
+  if (!draft) return;
+  if (draft.timer) { clearTimeout(draft.timer); draft.timer = null; }
+  if (draft.inFlight) {
+    try { await draft.inFlight; } catch { /* completion can still retry the full final note */ }
+  }
+  if (!draft.inFlight && draft.value !== draft.savedValue && draft.status !== "failed") {
+    try { await saveActiveVisitNotes(key, visit); } catch { /* visible failed state remains */ }
+  }
+  draft.suspended = true;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: resumeActiveNoteDraft
+// Description: Re-enables an active-note editor when staff cancel the completion workflow.
+// Parameters: string|number id - provider item id - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function resumeActiveNoteDraft(id) {
+  const draft = ACTIVE_NOTE_DRAFTS.get(String(id || ""));
+  if (!draft) return;
+  draft.suspended = false;
+  if (draft.value !== draft.savedValue && draft.status !== "failed") {
+    const visit = STATE.paceVisits.find(item => String(item.id) === String(id));
+    scheduleActiveNoteSave(id, visit);
+  }
+}
+
+loadActiveNoteDrafts();
 
 // Clears everything specific to ONE visit-in-progress. Deliberately does
 // NOT touch STATE.staffMembers (sticky across a room session — see STATE
@@ -468,9 +781,13 @@ async function startDemoMode() {
 }
 
 document.getElementById("signInBtn").addEventListener("click", () => AUTH.login());
-document.getElementById("signOutFromUnauthBtn").addEventListener("click", () => AUTH.logout());
+document.getElementById("signOutFromUnauthBtn").addEventListener("click", () => {
+  discardActiveNoteDrafts();
+  AUTH.logout();
+});
 document.getElementById("signOutBtn")?.addEventListener("click", () => {
   if (APP_MODE === "demo" || !AUTH.account) return;
+  discardActiveNoteDrafts();
   AUTH.logout();
 });
 
@@ -579,6 +896,10 @@ function openVisitsForRoom(roomId) {
 function renderCurrentlyInPace() {
   const listEl = document.getElementById("currentlyInPace");
   const open = openVisitsForRoom(STATE.room);
+  const openIds = new Set(open.map(v => String(v.id)));
+  ACTIVE_NOTE_DRAFTS.forEach((draft, id) => {
+    if (!openIds.has(String(id)) && !draft.inFlight) removeActiveNoteDraft(id);
+  });
   if (open.length === 0) {
     const isPhysicalRoom = currentRoomConfig()?.isPhysicalRoom !== false;
     listEl.innerHTML = `<p class="empty-hint">${isPhysicalRoom ? "No students currently in PACE." : "No one currently logged as receiving support."}</p>`;
@@ -586,25 +907,57 @@ function renderCurrentlyInPace() {
   }
   listEl.innerHTML = open.map(v => `
     <div class="current-card">
-      <div class="current-card-info">
-        <span class="current-card-name">${escHtml(v.Student || "")}${v.demo ? ' <span class="badge-simulated">SIMULATED</span>' : ""}</span>
-        <span class="current-card-meta">In: ${escHtml(fmt12h(v["Time In"]))} · ${elapsedMinutesSince(dateOnly(v.Date), v["Time In"])} min</span>
-        ${v.Reason ? `<span class="current-card-meta">${escHtml(v.Reason)}</span>` : ""}
-        ${RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]) ? `<span class="current-card-meta">${escHtml(RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]))}</span>` : ""}
+      <div class="current-card-top">
+        <div class="current-card-info">
+          <span class="current-card-name">${escHtml(v.Student || "")}${v.demo ? ' <span class="badge-simulated">SIMULATED</span>' : ""}</span>
+          <span class="current-card-meta">In: ${escHtml(fmt12h(v["Time In"]))} · ${elapsedMinutesSince(dateOnly(v.Date), v["Time In"])} min</span>
+          ${v.Reason ? `<span class="current-card-meta">${escHtml(v.Reason)}</span>` : ""}
+          ${RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]) ? `<span class="current-card-meta">${escHtml(RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]))}</span>` : ""}
+        </div>
+        <button class="current-card-exit" data-item-id="${escHtml(v.id)}">MARK COMPLETE</button>
       </div>
-      <button class="current-card-exit" data-item-id="${escHtml(v.id)}">MARK COMPLETE</button>
+      <div class="active-note-editor" data-active-note-id="${escHtml(v.id)}">
+        <label class="active-note-label" for="activeNote-${escHtml(v.id)}">Visit Notes</label>
+        <textarea id="activeNote-${escHtml(v.id)}" class="note-textarea active-note-textarea" data-note-item-id="${escHtml(v.id)}" rows="4" placeholder="Continue documenting observations, interventions, and student responses…">${escHtml(activeNoteDraftFor(v)?.value || "")}</textarea>
+        <div class="active-note-actions">
+          <span class="active-note-status" aria-live="polite"></span>
+          <button class="btn btn-secondary active-note-save" data-save-note-id="${escHtml(v.id)}" type="button">Save notes</button>
+        </div>
+      </div>
     </div>`).join("");
 
+  open.forEach(v => updateActiveNoteStatus(v.id));
+  listEl.querySelectorAll(".active-note-textarea").forEach(textarea => {
+    textarea.addEventListener("input", () => {
+      const item = open.find(row => String(row.id) === textarea.dataset.noteItemId);
+      if (item) changeActiveNoteDraft(item.id, textarea.value, item);
+    });
+  });
+  listEl.querySelectorAll(".active-note-save").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const item = open.find(row => String(row.id) === btn.dataset.saveNoteId);
+      if (!item) return;
+      const draft = activeNoteDraftFor(item);
+      if (draft?.timer) { clearTimeout(draft.timer); draft.timer = null; }
+      try { await saveActiveVisitNotes(item.id, item); } catch { /* failed state is rendered */ }
+    });
+  });
   listEl.querySelectorAll(".current-card-exit").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const item = open.find(v => String(v.id) === btn.dataset.itemId);
-      if (item) openExitScreen(item);
+      if (!item) return;
+      btn.disabled = true;
+      btn.textContent = "OPENING…";
+      await flushActiveNoteSave(item.id, item);
+      openExitScreen(item);
     });
   });
 }
 
 // Keep elapsed-minute labels fresh without a full reload.
-setInterval(() => { if (currentScreenName === "room") renderCurrentlyInPace(); }, 30000);
+setInterval(() => {
+  if (currentScreenName === "room" && !document.querySelector(".active-note-textarea:focus")) renderCurrentlyInPace();
+}, 30000);
 
 document.getElementById("startLiveVisitBtn").addEventListener("click", async () => {
   // Refresh first so duplicate-open protection includes visits started from
@@ -973,6 +1326,10 @@ function renderVisitInfo() {
   document.getElementById("visitTimeInInput").value = STATE.timeIn || "";
   document.getElementById("visitTimeOutInput").value = STATE.timeOut || "";
   document.getElementById("visitTimeOutCard").classList.toggle("hidden", isLiveStart());
+  const liveNotesCard = document.getElementById("liveVisitNotesCard");
+  const liveNotesInput = document.getElementById("liveVisitNotesInput");
+  liveNotesCard.classList.toggle("hidden", !isLiveStart());
+  liveNotesInput.value = STATE.notes || "";
   document.getElementById("visitDurationHint").classList.toggle("hidden", isLiveStart());
   document.querySelector('[data-screen="visitinfo"] .btn-back').dataset.nav = isLiveStart() ? "reason" : "cameFrom";
   document.getElementById("visitInfoNextBtn").textContent = isLiveStart() ? "START PACE VISIT" : "Next";
@@ -1024,6 +1381,10 @@ function validateVisitInfo() {
     document.getElementById("visitTimeError").classList.add("hidden");
     updateVisitDurationHint();
   });
+});
+
+document.getElementById("liveVisitNotesInput").addEventListener("input", event => {
+  if (isLiveStart()) STATE.notes = event.target.value;
 });
 
 document.getElementById("visitRoomInput").addEventListener("change", event => {
@@ -1134,10 +1495,10 @@ document.getElementById("scmNoBtn").addEventListener("click", () => setScm(false
 
 /* ── NOTES ────────────────────────────────────────────────────────────── */
 
-// CURRENT-PATCH: this screen is never reached by a live-start visit (see
-// isLiveStart()'s branch in reasonNextBtn's handler — a live start jumps
-// straight from Reason to Visit Info and saves via saveLiveVisit(), which
-// never sends Notes at all). Every path that DOES reach this screen —
+// A live-start visit now gets an optional Visit Notes field on Visit Details
+// and is saved immediately as an open row. This screen is still the final
+// completion/editing Notes screen for Mark Complete, an after-the-fact entry,
+// or an existing completed visit. Every path that reaches this screen —
 // Mark Complete, an after-the-fact completed entry, or editing an
 // existing completed visit (Recent Activity only ever surfaces already-
 // completed visits for edit — see RECENT_ACTIVITY.select()) — represents
@@ -1210,7 +1571,9 @@ function buildVisitEntry({ open = false } = {}) {
     behaviors: STATE.reasons,
     interventions: open ? [] : STATE.supports,
     scmUsed: open ? null : STATE.scmUsed,
-    notes: open ? "" : STATE.notes,
+    // A live-start note is intentionally optional, but it is still written
+    // to the newly created open row so staff can continue it in the room.
+    notes: STATE.notes,
     submittedByName: AUTH.staffName || AUTH.displayName,
     timestamp: new Date().toISOString(),
     // STAFF CORRECTIONS: present only while editing an existing visit;
@@ -1221,11 +1584,10 @@ function buildVisitEntry({ open = false } = {}) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // Function Name: saveLiveVisit
-// Description: Persists a live-start visit as an open row. This path intentionally does not
-//              collect Notes, SCM, or interventions, since staff may not know those completion
-//              details when a student first enters. The resulting provider id is retained by
-//              the visit row so Mark Complete can patch the same record later. Provider
-//              failures are surfaced through the save UI.
+// Description: Persists a live-start visit as an open row. Notes are optional at this point and
+//              are carried into that row; SCM and interventions remain completion-only. The
+//              resulting provider id is retained by the visit row so Mark Complete can patch the
+//              same record later. Provider failures are surfaced through the save UI.
 // Parameters: none
 ///////////////////////////////////////////////////////////////////////////////////////////////
 async function saveLiveVisit() {
@@ -1454,7 +1816,10 @@ function openExitScreen(item) {
   STATE.reasons = RECENT_ACTIVITY.editModel(item).reasons;
   STATE.supports = RECENT_ACTIVITY.editModel(item).supports;
   STATE.scmUsed = typeof item["SCM Used"] === "boolean" ? item["SCM Used"] : null;
-  STATE.notes = item.Notes || "";
+  // If an active-room editor has a newer local draft than the last provider
+  // read, carry that exact text into final completion. The completion PATCH
+  // still targets this same existing item id.
+  STATE.notes = activeNoteDraftFor(item)?.value ?? String(item.Notes || "");
   STATE.editingRoom = item["PACE Room"] || STATE.room;
   renderExitCard();
   nav("exit", "forward");

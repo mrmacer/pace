@@ -86,8 +86,8 @@ assert.doesNotMatch(app, /notes.{0,40}length\s*[<>]=?\s*[1-9]\d*/i, "no inline m
   const fnStart = app.indexOf("async function saveLiveVisit()");
   const fnEnd = app.indexOf("\n}", fnStart);
   const fnBody = app.slice(fnStart, fnEnd);
-  assert.doesNotMatch(fnBody, /STATE\.notes/, "saveLiveVisit() (the Start Visit path) must contain no Notes validation at all — it's architecturally unreachable from the Notes screen");
-  assert.match(app, /notes: open \? "" : STATE\.notes/, "buildVisitEntry() must still send no Notes for an open (live-start) visit — unchanged from before this patch");
+    assert.doesNotMatch(fnBody, /validateCompletionNotes/, "saveLiveVisit() must not apply the completed-visit Notes minimum");
+    assert.match(app, /notes: STATE\.notes/, "buildVisitEntry() must carry optional pre-start Notes into an open live-start visit");
 }
 
 /* ── 7/8/9: completing (Mark Complete), after-the-fact entry, and edit

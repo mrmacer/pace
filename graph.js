@@ -114,13 +114,15 @@ const GRAPH = {
   // Parameters: string path - relative Graph API path - input
   //             Object body - JSON-serializable field patch to send - input
   ///////////////////////////////////////////////////////////////////////////////////////////////
-  async _patch(path, body) {
+  async _patch(path, body, requestOptions) {
+    requestOptions = requestOptions || {};
     assertGraphAllowed();
     const token = await AUTH.acquireGraphToken();
     const resp  = await fetch(`${this._BASE}/${path}`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      ...(requestOptions.signal ? { signal: requestOptions.signal } : {})
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
@@ -288,11 +290,12 @@ const GRAPH = {
   //             string itemId - SharePoint list item id to patch - input
   //             Object displayFields - display-name keyed values to write - input
   ///////////////////////////////////////////////////////////////////////////////////////////////
-  async updateMappedListItem(listName, itemId, displayFields) {
+  async updateMappedListItem(listName, itemId, displayFields, requestOptions) {
+    requestOptions = requestOptions || {};
     const siteId = await this.getSiteId();
     const listId = await this.getListId(listName);
     const fields = await this.mapFields(listName, displayFields);
-    return this._patch(`sites/${siteId}/lists/${listId}/items/${itemId}/fields`, fields);
+    return this._patch(`sites/${siteId}/lists/${listId}/items/${itemId}/fields`, fields, requestOptions);
   },
 
   ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -586,6 +589,7 @@ const GRAPH = {
   ///////////////////////////////////////////////////////////////////////////////////////////////
   async updatePaceVisit(itemId, entry) {
     if (!itemId) throw new Error("A SharePoint visit item is required for editing.");
+    const requestOptions = arguments[2] || {};
     // CURRENT-PATCH: label, not slug — see savePaceVisit() above. Same-day
     // edits can change the room via the Visit Info screen's room select.
     // ROOM-FIELD-NAME PATCH: all three tolerated aliases — see savePaceVisit().
@@ -620,7 +624,7 @@ const GRAPH = {
       "Notes":             has("notes") ? (entry.notes || "") : undefined,
       "Behavior Specialist": has("staffMembers") ? joined(entry.staffMembers) : undefined,
       "Teacher Came From": has("cameFromTeacher") ? (entry.cameFromTeacher || "") : undefined
-    });
+    }, requestOptions);
   },
 
   // STAFF CORRECTIONS: deletes exactly ONE IEP_Pace_Visits item, addressed

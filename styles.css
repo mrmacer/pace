@@ -263,8 +263,9 @@ body[data-room="other"] {
 .empty-hint { color: var(--text-muted); font-size: 15px; padding: 12px 4px; }
 .current-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  box-shadow: var(--shadow); padding: 16px 18px; display: flex; flex-direction: column; align-items: stretch; gap: 12px;
 }
+.current-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .current-card-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .current-card-name { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .current-card-meta { font-size: 14px; color: var(--text-secondary); }
@@ -273,6 +274,14 @@ body[data-room="other"] {
   border-radius: 10px; font-weight: 800; font-size: 15px; padding: 12px 18px; min-height: 44px; flex-shrink: 0; cursor: pointer;
 }
 .current-card-exit:active { transform: scale(.96); }
+.active-note-editor { display: flex; flex-direction: column; gap: 8px; }
+.active-note-label { font-size: 14px; font-weight: 700; color: var(--text-secondary); }
+.active-note-textarea { min-height: 112px; resize: vertical; }
+.active-note-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.active-note-status { min-height: 22px; font-size: 14px; font-weight: 700; color: var(--text-secondary); }
+.active-note-status.saved { color: var(--green, #15803d); }
+.active-note-status.failed { color: var(--red); }
+.active-note-save { min-height: 44px; padding: 10px 16px; }
 
 .room-visit-actions { margin-bottom: 28px; }
 .action-caption {
@@ -378,7 +387,7 @@ body[data-room="other"] {
 /* ── Notes ────────────────────────────────────────────────────────────── */
 .note-textarea {
   width: 100%; font-size: 16px; padding: 14px 16px; border-radius: var(--radius);
-  border: 1.5px solid var(--border); font-family: inherit; resize: none;
+  border: 1.5px solid var(--border); font-family: inherit; resize: vertical;
 }
 .hidden { display: none !important; }
 

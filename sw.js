@@ -11,7 +11,7 @@
 //          for synchronized SharePoint data.
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const CACHE_NAME = "pace-tracker-shell-v20"; // ISSUE #10: Notes minimum 20 -> 1 char, counter removed; prior: NOTES MINIMUM PATCH (20 meaningful chars); prior: STAFF CORRECTIONS PATCH: new visit-corrections.js + index.html/app.js/graph.js/pace-data.js/demo-data.js/styles.css changed
+const CACHE_NAME = "pace-tracker-shell-v21"; // LIVE VISIT NOTES PATCH (pre-start and active-note editing); prior v20: Notes minimum patch
 const SHELL_FILES = [
   "./",
   "./index.html",

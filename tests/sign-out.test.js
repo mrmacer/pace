@@ -20,13 +20,14 @@ async function verifyProductionLogout() {
   const storage = new Map([
     ["paceTracker_lastRoom", "pace-room-2"],
     ["paceTracker_visitContext", '{"123":{"room":"pace-room-2"}}'],
+    ["paceTracker_activeNoteDrafts", '{"123":"unsaved note"}'],
     ["unrelated-setting", "keep-me"]
   ]);
   const redirects = [];
   const context = vm.createContext({
     console,
     APP_MODE: "production",
-    CONFIG: { STORAGE_KEYS: { LAST_ROOM: "paceTracker_lastRoom", VISIT_CONTEXT: "paceTracker_visitContext" } },
+    CONFIG: { STORAGE_KEYS: { LAST_ROOM: "paceTracker_lastRoom", VISIT_CONTEXT: "paceTracker_visitContext", ACTIVE_NOTE_DRAFTS: "paceTracker_activeNoteDrafts" } },
     window: { location: { origin: "https://pace-room-tracker.vercel.app" } },
     localStorage: {
       removeItem(key) { removed.push(key); storage.delete(key); },
@@ -49,7 +50,7 @@ async function verifyProductionLogout() {
 
   await auth.logout();
 
-  assert.deepEqual(removed, ["paceTracker_lastRoom", "paceTracker_visitContext"]);
+  assert.deepEqual(removed, ["paceTracker_lastRoom", "paceTracker_visitContext", "paceTracker_activeNoteDrafts"]);
   assert.equal(storage.get("unrelated-setting"), "keep-me");
   assert.equal(auth.account, null);
   assert.equal(auth.staffId, null);
@@ -68,6 +69,7 @@ function verifyAuthenticatedShellWiring() {
   assert.match(appSource, /authToolbar\.classList\.remove\("hidden"\)/);
   assert.match(appSource, /AUTH\.logout\(\)/);
   assert.match(appSource, /if \(APP_MODE === "demo" \|\| !AUTH\.account\) return/);
+  assert.match(appSource, /discardActiveNoteDrafts\(\);\s*AUTH\.logout\(\);/s, "sign-out must invalidate pending active-note drafts before redirecting");
 }
 
 Promise.all([verifyProductionLogout(), verifyAuthenticatedShellWiring()])

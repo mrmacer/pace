@@ -11,13 +11,14 @@
 //          for synchronized SharePoint data.
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const CACHE_NAME = "pace-tracker-shell-v21"; // LIVE VISIT NOTES PATCH (pre-start and active-note editing); prior v20: Notes minimum patch
+const CACHE_NAME = "pace-tracker-shell-v22"; // PATCH T1: synthetic teacher contributions; prior v21: live visit notes
 const SHELL_FILES = [
   "./",
   "./index.html",
   "./styles.css",
   "./config.js",
   "./demo-data.js",
+  "./teacher-contributions.js",
   "./auth.js",
   // REVIEW: iep-app-users.js is loaded by index.html but is not currently in
   // this shell list; add it when the application-permission gate is enabled.
@@ -28,6 +29,7 @@ const SHELL_FILES = [
   "./visit-corrections.js",
   "./student-select.js",
   "./pace-data.js",
+  "./teacher-contributions-ui.js",
   "./diagnostic.js", // TEMPORARY PATCH 003 DIAGNOSTIC — remove this line when retracted
   "./app.js",
   "./manifest.webmanifest",

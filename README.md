@@ -10,6 +10,35 @@ administrators through MAC Walkthrough's dashboard/reports.
 PACE ROOM iPad → PACE Room Tracker → Microsoft Graph → IEP_Pace_Visits → MAC Walkthrough
 ```
 
+## PATCH T1 — synthetic Teacher Referral & Contribution System
+
+This prototype patch is demo-only. It adds a fictional teacher directory,
+teacher-scoped contribution assignments, local draft/submission persistence,
+versioned corrections, simulated initial/reminder notification events, a
+teacher view, an administrative contribution dashboard, and a synthetic MAC
+Walkthrough PACE Log preview. It never sends email, calls Microsoft Graph or
+SharePoint for teacher-contribution data, creates Microsoft 365 resources, or
+changes the MAC Walkthrough repository.
+
+The prototype build is fail-closed to demo mode even if a copied URL contains
+`?production=1`; this safety override is local to this checkout. Use a static
+server from this directory, for example:
+
+```sh
+python3 -m http.server 8080
+```
+
+Then open `http://localhost:8080/`. Use the Home screen's **Teacher
+contribution demo** tools to switch between the BI workflow, Demo Teacher View,
+Teacher Contributions administration, Notification Center, and the MAC
+Walkthrough preview. All records use fictional `.invalid` email addresses and
+browser-local storage. Reset Demo Data clears both PACE visits and teacher
+contribution records.
+
+The future Microsoft 365 design seam is `teacher-contributions.js`: its local
+provider can later be replaced by an approved, assignment-scoped backend
+without allowing teacher submissions to overwrite BI notes or visit timing.
+
 PATCH 008 exposes two intentionally separate entry paths:
 
 ```

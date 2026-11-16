@@ -1602,7 +1602,11 @@ async function saveLiveVisit() {
   btn.textContent = "Starting…";
   try {
     const isPhysicalRoom = currentRoomConfig()?.isPhysicalRoom !== false;
-    await PACE_DATA.createVisit(buildVisitEntry({ open: true }));
+    const result = await PACE_DATA.createVisit(buildVisitEntry({ open: true }));
+    // Rebuild the unchanged provider-neutral payload for the demo-only
+    // teacher assignment seam; the visit provider call above remains the
+    // single source of truth for persistence and retry behavior.
+    const syntheticVisitId = syncSyntheticTeacherAssignment(result, buildVisitEntry({ open: true }), "Active");
     await refreshRoomVisits();
     const studentName = STATE.student.name;
     resetTrip();
@@ -1611,6 +1615,7 @@ async function saveLiveVisit() {
     STATE.saving = false;
     nav("room", "back");
     showToast(isPhysicalRoom ? `${studentName} is now in PACE.` : `${studentName}'s support has started.`);
+    if (syntheticVisitId) TEACHER_CONTRIBUTIONS_UI.showAssignmentConfirmation(syntheticVisitId);
   } catch (err) {
     console.error("PACE live visit start failed:", err);
     STATE.saving = false;
@@ -1618,6 +1623,36 @@ async function saveLiveVisit() {
     btn.textContent = "START PACE VISIT";
     showToast("Visit could not be started. Try again.", "error");
   }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: syncSyntheticTeacherAssignment
+// Description: Creates the demo-only teacher contribution assignment after a synthetic PACE
+//              visit is persisted. This is deliberately isolated from the production provider;
+//              it never runs in production mode and never calls Graph or SharePoint.
+// Parameters: Object result - provider create result or duplicate result - input
+//             Object entry - provider-neutral visit payload - input
+//             string visitStatus - Active or Completed - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function syncSyntheticTeacherAssignment(result, entry, visitStatus) {
+  if (APP_MODE !== "demo" || typeof TEACHER_CONTRIBUTIONS === "undefined") return null;
+  const visitId = result?.existingItem?.id || result?.id || entry?.id;
+  if (!visitId) return null;
+  const assignment = TEACHER_CONTRIBUTIONS.createAssignment({ visitId, entry, visitStatus });
+  if (typeof TEACHER_CONTRIBUTIONS_UI !== "undefined") TEACHER_CONTRIBUTIONS_UI.refreshVisible?.();
+  return assignment.contribution?.visitId || visitId;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: markSyntheticTeacherVisitCompleted
+// Description: Marks the demo contribution's parent visit completed and emits at most one real
+//              simulated reminder. Repeated completion events are logged as suppressed.
+// Parameters: string visitId - stable synthetic visit id - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function markSyntheticTeacherVisitCompleted(visitId) {
+  if (APP_MODE !== "demo" || !visitId || typeof TEACHER_CONTRIBUTIONS === "undefined") return;
+  TEACHER_CONTRIBUTIONS.markVisitCompleted(visitId);
+  if (typeof TEACHER_CONTRIBUTIONS_UI !== "undefined") TEACHER_CONTRIBUTIONS_UI.refreshVisible?.();
 }
 
 // PATCH 001: read-only summary of the COMPLETE visit — editing now happens
@@ -1732,12 +1767,18 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
   try {
     const wasEditing = isEditingVisit();
     const wasCompleting = isCompletingVisit();
+    let persistedVisitId = "";
     if (wasCompleting) {
       await PACE_DATA.completeVisit(STATE.completionTarget.id, entry);
+      persistedVisitId = String(STATE.completionTarget.id);
+      markSyntheticTeacherVisitCompleted(persistedVisitId);
     } else if (wasEditing) {
       await PACE_DATA.updateVisit(STATE.editingVisitId, entry);
+      persistedVisitId = String(STATE.editingVisitId);
     } else {
-      await PACE_DATA.createVisit(entry);
+      const result = await PACE_DATA.createVisit(entry);
+      persistedVisitId = syncSyntheticTeacherAssignment(result, entry, entry.timeOut ? "Completed" : "Active") || String(entry.id || "");
+      if (entry.timeOut) markSyntheticTeacherVisitCompleted(persistedVisitId);
     }
     btn.disabled = false;
     btn.textContent = wasCompleting ? "COMPLETE VISIT" : (wasEditing ? "UPDATE PACE VISIT" : "SAVE PACE VISIT");
@@ -1745,6 +1786,9 @@ document.getElementById("saveEntryBtn").addEventListener("click", async () => {
     document.getElementById("savedOverlayMessage").textContent = wasCompleting ? "PACE visit completed" : (wasEditing ? "PACE visit updated" : "PACE visit saved");
     document.getElementById("savedOverlay").classList.remove("hidden");
     await refreshRoomVisits();
+    if (!wasEditing && persistedVisitId && typeof TEACHER_CONTRIBUTIONS_UI !== "undefined") {
+      TEACHER_CONTRIBUTIONS_UI.showAssignmentConfirmation?.(persistedVisitId);
+    }
     setTimeout(async () => {
       document.getElementById("savedOverlay").classList.add("hidden");
       if (wasCompleting) {
@@ -2143,9 +2187,11 @@ document.getElementById("resetDemoBtn")?.addEventListener("click", () => {
   const confirmed = confirm("Clear all demo PACE records stored on this device?");
   if (!confirmed) return;
   DemoStorage.reset();
+  if (typeof TEACHER_CONTRIBUTIONS !== "undefined") TEACHER_CONTRIBUTIONS.Storage.reset();
   showToast("Demo data cleared.");
   refreshRoomVisits();
   if (currentScreenName === "recent") loadRecentActivity();
+  if (typeof TEACHER_CONTRIBUTIONS_UI !== "undefined") TEACHER_CONTRIBUTIONS_UI.refreshVisible?.();
 });
 
 /* ── TEMPORARY PATCH 003 DIAGNOSTIC (production-only, read-only) ─────────
@@ -2210,5 +2256,7 @@ function escHtml(str) {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(err => console.warn("SW registration failed:", err)));
 }
+
+if (typeof TEACHER_CONTRIBUTIONS_UI !== "undefined") TEACHER_CONTRIBUTIONS_UI.init();
 
 boot();

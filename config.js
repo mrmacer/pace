@@ -27,16 +27,17 @@
 // literal — but every downstream `APP_MODE === "demo"` check (auth.js,
 // graph.js, pace-data.js, app.js) is completely unchanged, since this still
 // produces one plain "demo" | "production" string in the same constant.
-// Rule, in order:
-//   1. ?demo=1        forces demo, on ANY host — including the production
-//      URL itself, so it stays possible to demo the app publicly without
-//      ever touching real IU29 data.
-//   2. ?production=1  forces production, for local/manual verification
-//      against the real tenant from a dev server.
-//   3. Otherwise: production ONLY on the known deployed production
-//      hostname; everything else (localhost, a Vercel preview URL, a
-//      not-yet-listed custom domain) defaults to demo. Fails toward "no
-//      access to real data," never the other way.
+// Prototype safety override: this checkout is synthetic-only. It must stay in
+// demo mode even if a copied URL contains ?production=1 or uses the production
+// hostname. The production checkout retains its own normal mode-selection
+// behavior; this guard is intentionally local to the prototype workspace.
+const PROTOTYPE_DEMO_ONLY = true;
+
+// In the production checkout, the normal rule is:
+//   1. ?demo=1        forces demo on any host.
+//   2. ?production=1  is an intentional local/manual production test flag.
+//   3. Otherwise: production only on the known deployed production hostname;
+//      everything else defaults to demo.
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // Function Name: resolveAppMode
 // Description: Determines whether the app runs in demo or production mode, based on
@@ -45,6 +46,7 @@
 // Parameters: none
 ///////////////////////////////////////////////////////////////////////////////////////////////
 function resolveAppMode() {
+  if (PROTOTYPE_DEMO_ONLY) return "demo";
   const params = new URLSearchParams(window.location.search);
   if (params.has("demo")) return "demo";
   if (params.has("production")) return "production";

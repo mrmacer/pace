@@ -93,6 +93,22 @@
            see diagnostic.js. Remove this button + the overlay below, plus
            diagnostic.js and its <script> tag, to fully retract this. -->
       <button class="btn-diagnostic hidden" id="runDiagnosticBtn">Run SharePoint Diagnostic</button>
+
+      <!-- PATCH T1: synthetic-only teacher contribution tools. These controls
+           are revealed by teacher-contributions-ui.js only in demo mode. -->
+      <section class="demo-tools hidden" id="teacherDemoTools" aria-labelledby="teacherDemoToolsTitle">
+        <div class="demo-tools-heading">
+          <span class="demo-tools-kicker">PATCH T1 · SYNTHETIC ONLY</span>
+          <h2 id="teacherDemoToolsTitle">Teacher contribution demo</h2>
+          <p>Fictional teachers, visits, notes, and notifications stay in this browser.</p>
+        </div>
+        <div class="demo-tools-grid">
+          <button class="btn btn-secondary btn-lg" id="openTeacherViewBtn" type="button">Demo Teacher View</button>
+          <button class="btn btn-secondary btn-lg" id="openTeacherAdminBtn" type="button">Teacher Contributions</button>
+          <button class="btn btn-secondary btn-lg" id="openNotificationCenterBtn" type="button">Notification Center</button>
+          <button class="btn btn-secondary btn-lg" id="openWalkthroughPreviewBtn" type="button">Walkthrough Preview</button>
+        </div>
+      </section>
     </div>
 
     <div class="overlay hidden" id="diagnosticOverlay">
@@ -406,12 +422,87 @@
     </div>
   </section>
 
+  <!-- ── PATCH T1: DEMO TEACHER VIEW ──────────────────────────────── -->
+  <section class="screen" data-screen="teacherView">
+    <header class="panel-header">
+      <button class="btn-back" id="teacherViewBackBtn" type="button">&larr; Home</button>
+      <h2 class="panel-title">Demo Teacher View</h2>
+      <span class="demo-only-label">Synthetic</span>
+    </header>
+    <div class="panel-inner teacher-tools-panel">
+      <div class="demo-disclaimer">Demo Teacher View — fictional accounts only. This page cannot access Microsoft or SharePoint.</div>
+      <div class="form-card">
+        <label class="walk-field-label" for="demoTeacherAccountSelect">Act as teacher</label>
+        <select class="form-input-lg" id="demoTeacherAccountSelect"></select>
+        <p class="field-hint">Assignments are filtered by the selected synthetic teacher identity.</p>
+      </div>
+      <div id="teacherLandingList" class="teacher-assignment-list"></div>
+      <div id="teacherContributionEditor" class="teacher-editor hidden"></div>
+    </div>
+  </section>
+
+  <!-- ── PATCH T1: ADMIN CONTRIBUTIONS ───────────────────────────── -->
+  <section class="screen" data-screen="teacherAdmin">
+    <header class="panel-header">
+      <button class="btn-back" id="teacherAdminBackBtn" type="button">&larr; Home</button>
+      <h2 class="panel-title">Teacher Contributions</h2>
+      <span class="demo-only-label">Synthetic</span>
+    </header>
+    <div class="panel-inner teacher-tools-panel">
+      <div class="demo-disclaimer">Administrative preview — full notes and audit history are synthetic.</div>
+      <div id="teacherAdminSummary" class="teacher-summary-grid"></div>
+      <div class="teacher-admin-toolbar">
+        <label class="sr-only" for="teacherAdminStatusFilter">Filter contribution status</label>
+        <select class="form-input-lg" id="teacherAdminStatusFilter">
+          <option value="">All statuses</option>
+          <option>Requested</option>
+          <option>Draft</option>
+          <option>Submitted</option>
+          <option>Correction requested</option>
+          <option>Needs Attention</option>
+          <option>Superseded</option>
+        </select>
+        <label class="sr-only" for="teacherAdminTeacherFilter">Filter teacher</label>
+        <select class="form-input-lg" id="teacherAdminTeacherFilter"><option value="">All teachers</option></select>
+      </div>
+      <div id="teacherAdminList" class="teacher-admin-list"></div>
+      <div id="teacherAdminDetails" class="teacher-admin-details hidden"></div>
+    </div>
+  </section>
+
+  <!-- ── PATCH T1: NOTIFICATION CENTER ───────────────────────────── -->
+  <section class="screen" data-screen="notificationCenter">
+    <header class="panel-header">
+      <button class="btn-back" id="notificationCenterBackBtn" type="button">&larr; Home</button>
+      <h2 class="panel-title">Notification Center</h2>
+      <span class="demo-only-label">Simulation</span>
+    </header>
+    <div class="panel-inner teacher-tools-panel">
+      <div class="demo-disclaimer">No email is sent. Events below are simulated delivery records.</div>
+      <div id="notificationCenterList" class="notification-list"></div>
+    </div>
+  </section>
+
+  <!-- ── PATCH T1: MAC WALKTHROUGH PREVIEW ───────────────────────── -->
+  <section class="screen" data-screen="walkthroughPreview">
+    <header class="panel-header">
+      <button class="btn-back" id="walkthroughPreviewBackBtn" type="button">&larr; Home</button>
+      <h2 class="panel-title">MAC Walkthrough Preview</h2>
+      <span class="demo-only-label">Synthetic</span>
+    </header>
+    <div class="panel-inner teacher-tools-panel">
+      <div class="demo-disclaimer">Design preview only — the MAC Walkthrough repository was not modified.</div>
+      <div id="walkthroughPreviewList" class="walkthrough-preview-list"></div>
+    </div>
+  </section>
+
 </div>
 
 <div id="toast" class="toast hidden"></div>
 
 <script src="config.js"></script>
 <script src="demo-data.js"></script>
+<script src="teacher-contributions.js"></script>
 <script src="auth.js"></script>
 <script src="graph.js"></script>
 <script src="iep-app-users.js"></script>
@@ -421,6 +512,7 @@
 <script src="visit-corrections.js"></script>
 <script src="student-select.js"></script>
 <script src="pace-data.js"></script>
+<script src="teacher-contributions-ui.js"></script>
 <!-- TEMPORARY PATCH 003 DIAGNOSTIC — delete this line along with diagnostic.js -->
 <script src="diagnostic.js"></script>
 <script src="app.js"></script>

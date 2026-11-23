@@ -68,8 +68,21 @@ schema), and pure, DOM-free rule modules: `recent-activity.js`,
 `student-select.js`.
 
 Conventions worth keeping:
-- Every file and function starts with the bordered `// Function Name: /
-  Description: / Parameters:` header block.
+- **Documentation style is mandatory for every function in every script.**
+  Each file opens with a 95-slash bar, then `// Author:`, `// Creation Date:`
+  (e.g. "November 23, 2026"), `// Filename:`, and `// Purpose:`, then a closing
+  bar. Every named function, including object methods and small named
+  helpers inside other functions, has its own block directly above it:
+  ```
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: fmtLongDate
+  // Description: Formats a stored YYYY-MM-DD date as US MM-DD-YYYY for display.
+  // Parameters: string dateStr - ISO "YYYY-MM-DD" date to format - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  ```
+  Each parameter line is `type name - description - input|output`, or
+  `Parameters: none`. Nothing goes between the block and the function. Other
+  comments go above the block.
 - Changes are labelled as named patches in comments and in the README
   (e.g. `PATCH 011`, `STAFF CORRECTIONS`, `STUDENT HISTORY PATCH`).
 - When a shipped JS/CSS/HTML file changes or a new one is added, bump

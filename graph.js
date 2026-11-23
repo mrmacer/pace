@@ -629,9 +629,20 @@ const GRAPH = {
   // own identity — same student, date, Time In and Time Out. A student
   // can't have two genuinely separate visits starting at the same minute,
   // so that fingerprint can't swallow a legitimate second visit.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: findSavedPaceVisit
+  // Description: Finds the row an earlier attempt of this same save already created (by Entry
+  //              ID, else by student + date + Time In + Time Out), or null if none exists.
+  // Parameters: Object entry - logical visit entry being retried - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   async findSavedPaceVisit(entry) {
     const date = String(entry?.date || "").slice(0, 10);
     if (!date) return null;
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: text
+    // Description: Coerces a value to a trimmed string, treating null/undefined as empty.
+    // Parameters: any v - value to normalize - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const text = v => String(v ?? "").trim();
     const rows = await this.getPaceVisitsForDateByDisplayName(date);
     const entryId = text(entry.id);
@@ -669,7 +680,17 @@ const GRAPH = {
     // correction that only changed Notes PATCHes only Notes and never
     // touches Time In / Time Out / Duration. A full entry (every key
     // present) produces exactly the same payload as before.
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: has
+    // Description: Reports whether the correction supplied a value for one logical field.
+    // Parameters: string key - logical entry field name - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const has = key => entry[key] !== undefined;
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: joined
+    // Description: Joins a multi-select array with ", " (same convention as create).
+    // Parameters: Array<string>|string value - selections to join - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const joined = value => Array.isArray(value) ? value.join(", ") : (value || "");
     const roomValue = has("paceRoom") ? paceRoomLabelForId(entry.paceRoom) : undefined;
     return this.updateMappedListItem("IEP_Pace_Visits", itemId, {

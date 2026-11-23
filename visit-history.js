@@ -125,6 +125,11 @@ const VISIT_HISTORY = (() => {
   //             object b - second visit - input
   ///////////////////////////////////////////////////////////////////////////////////////////////
   function newestFirst(a, b) {
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: key
+    // Description: Builds a sortable "YYYY-MM-DD HH:MM" key from a visit's date and time in.
+    // Parameters: object visit - visit row - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const key = visit => `${dateOnly(visit?.Date)} ${text(visit?.["Time In"]).slice(0, 5).padStart(5, "0")}`;
     return key(b).localeCompare(key(a));
   }

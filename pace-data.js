@@ -344,6 +344,11 @@ const PACE_DATA = {
       if (problem) throw new Error(problem);
       if (!PACE_VISIT_CORRECTIONS.hasChanges(entry.original, entry)) throw new Error("No changes to save.");
     }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: has
+    // Description: Reports whether the update carries a value for one logical field.
+    // Parameters: string key - logical entry field name - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const has = key => changes[key] !== undefined;
     if (APP_MODE === "demo") {
       const patch = {};

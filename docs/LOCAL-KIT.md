@@ -16,6 +16,8 @@ Nothing in `~/.pace/` is ever committed. The project code never depends on it.
     tour.js                   ONE command: sandbox copy → every test file → visible browser tour
   tests/
     student-history.test.js   Node-only checks for the STUDENT HISTORY PATCH
+  tools/
+    doc-audit.js              checks the house documentation style on every function
   sandbox/
     tools/                    npm folder holding playwright-core@1.48.2
     work/                     throwaway copy of the project under test (recreated every run)
@@ -31,9 +33,10 @@ Nothing in `~/.pace/` is ever committed. The project code never depends on it.
 ## Rebuild steps (Git Bash or any POSIX shell)
 
 ```bash
-mkdir -p ~/.pace/demo ~/.pace/tests ~/.pace/sandbox/tools
+mkdir -p ~/.pace/demo ~/.pace/tests ~/.pace/tools ~/.pace/sandbox/tools
 cd ~/.pace/sandbox/tools && npm init -y >/dev/null && npm install playwright-core@1.48.2 --no-audit --no-fund
-# then create ~/.pace/demo/tour.js and ~/.pace/tests/student-history.test.js with the exact contents below
+# then create ~/.pace/demo/tour.js, ~/.pace/tests/student-history.test.js and
+# ~/.pace/tools/doc-audit.js with the exact contents below
 ```
 
 ## Using it
@@ -45,7 +48,9 @@ node ~/.pace/demo/tour.js --headless # same checks, no window
 
 The tour finds the repo (`PACE_REPO`, else `~/Projects/pace`, `~/pace/pace`,
 `~/pace`), copies it to `~/.pace/sandbox/work`, and runs the repo's
-`tests/*.test.js` and `~/.pace/tests/*.test.js` against that copy. It then
+`tests/*.test.js` and `~/.pace/tests/*.test.js` against that copy, and runs
+`~/.pace/tools/doc-audit.js` on the app scripts and the kit scripts (every
+function must carry the house documentation block). It then
 serves the copy on a random localhost port and drives a fresh, throwaway Edge
 profile in demo mode (fake students, zero Microsoft traffic, which it
 checks). A caption in the corner says what each step is doing. Results are in
@@ -59,16 +64,18 @@ through.
 ## `~/.pace/demo/tour.js`
 
 ~~~~js
-// PACE Room Tracker: visible, sandboxed browser tour (local kit only; never committed).
-//
-//   node ~/.pace/demo/tour.js [--headless] [--fast]
-//
-// 1. Copies the repo (PACE_REPO, else ~/Projects/pace, ~/pace/pace, ~/pace) into
-//    ~/.pace/sandbox/work. The repo folder itself is never touched.
-// 2. Runs the repo's tests/*.test.js and ~/.pace/tests/*.test.js against that copy.
-// 3. Serves the copy on a random localhost port and drives a VISIBLE Microsoft Edge
-//    window (fresh throwaway profile, demo mode only) through the features like a user.
-// Report: ~/.pace/sandbox/report/tour.log (last line starts "DONE:") and shots/.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller
+// Creation Date: November 23, 2026
+// Filename: tour.js
+// Purpose: Visible, sandboxed browser tour of PACE Room Tracker (local kit only; never committed).
+//          Usage: node ~/.pace/demo/tour.js [--headless] [--fast]. Copies the repo (PACE_REPO, else
+//          ~/Projects/pace, ~/pace/pace, ~/pace) into ~/.pace/sandbox/work, runs the repo's tests and
+//          ~/.pace/tests/*.test.js against that copy, then drives a VISIBLE Microsoft Edge window
+//          (fresh throwaway profile, demo mode only) through the features like a user would. The repo
+//          folder itself is never touched. Report: ~/.pace/sandbox/report/tour.log (last line starts
+//          "DONE:") and shots/.
+///////////////////////////////////////////////////////////////////////////////////////////////
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -87,8 +94,18 @@ const { chromium } = require(path.join(KIT, "sandbox", "tools", "node_modules", 
 
 fs.rmSync(REPORT, { recursive: true, force: true });
 fs.mkdirSync(SHOTS, { recursive: true });
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: log
+// Description: Prints one report line and appends it to tour.log.
+// Parameters: string line - text to record - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const log = line => { console.log(line); fs.appendFileSync(LOG, line + "\n"); };
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: findRepo
+// Description: Finds the PACE repo folder (PACE_REPO, then the usual checkout locations).
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function findRepo() {
   const candidates = [process.env.PACE_REPO, path.join(HOME, "Projects", "pace"), path.join(HOME, "pace", "pace"), path.join(HOME, "pace")];
   const repo = candidates.find(dir => dir && fs.existsSync(path.join(dir, "index.html")) && fs.existsSync(path.join(dir, "pace-data.js")));
@@ -96,6 +113,12 @@ function findRepo() {
   return repo;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: makeSandboxCopy
+// Description: Recreates ~/.pace/sandbox/work as a copy of the repo, without .git, node_modules,
+//              .vercel, or .env files.
+// Parameters: string repo - path of the repo to copy - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function makeSandboxCopy(repo) {
   fs.rmSync(WORK, { recursive: true, force: true });
   const skip = new Set([".git", "node_modules", ".vercel"]);
@@ -108,6 +131,11 @@ function makeSandboxCopy(repo) {
   });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: runTestFiles
+// Description: Runs every repo and kit *.test.js file against the sandbox copy and logs PASS/FAIL.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function runTestFiles() {
   const files = [];
   const repoTests = path.join(WORK, "tests");
@@ -125,9 +153,32 @@ function runTestFiles() {
       log(`  FAIL ${label} — ${why.trim().slice(0, 160)}`);
     }
   }
-  return { total: files.length, failed };
+  // House documentation style: every app script (sandbox copy) and every kit script.
+  const audit = path.join(KIT, "tools", "doc-audit.js");
+  const targets = [
+    ["app scripts", [WORK]],
+    ["kit demo/tour.js", [path.join(KIT, "demo"), "tour.js"]],
+    ["kit tools/doc-audit.js", [path.join(KIT, "tools"), "doc-audit.js"]],
+    ["kit tests", [path.join(KIT, "tests"), ...fs.readdirSync(path.join(KIT, "tests")).filter(f => f.endsWith(".js"))]]
+  ];
+  let checks = files.length;
+  for (const [label, args] of targets) {
+    checks++;
+    const run = spawnSync(process.execPath, [audit, ...args], { encoding: "utf8" });
+    if (run.status === 0) log(`  PASS docs  ${label}`);
+    else {
+      failed.push(`docs: ${label}`);
+      log(`  FAIL docs  ${label} — ${(run.stdout || "").split(/\r?\n/).filter(Boolean).slice(0, 3).join("; ").slice(0, 200)}`);
+    }
+  }
+  return { total: checks, failed };
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: serve
+// Description: Serves a folder over HTTP on a random localhost port (no caching).
+// Parameters: string root - folder to serve - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function serve(root) {
   const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".webmanifest": "application/manifest+json" };
   const server = http.createServer((req, res) => {
@@ -141,10 +192,42 @@ function serve(root) {
 }
 
 // ── seed data (fake demo students only) ────────────────────────────────────
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: local
+// Description: Formats a Date as a local YYYY-MM-DD string (the stored date format).
+// Parameters: Date d - date to format - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const local = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: day
+// Description: Returns the local YYYY-MM-DD date a number of days from today.
+// Parameters: number n - days from today (negative = earlier) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const day = n => { const d = new Date(); d.setDate(d.getDate() + n); return local(d); };
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: hhmmAgo
+// Description: Returns the 24-hour HH:MM time a number of minutes ago (the stored time format).
+// Parameters: number minutes - minutes before now - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const hhmmAgo = minutes => { const d = new Date(Date.now() - minutes * 60000); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const TODAY = day(0), YESTERDAY = day(-1);
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: visit
+// Description: Builds one fake demo visit row, keyed by SharePoint display names.
+// Parameters: string id - demo row id - input
+//             string room - room label - input
+//             string sid - Student ID - input
+//             string name - student name - input
+//             string date - YYYY-MM-DD - input
+//             string tin - Time In HH:MM - input
+//             string tout - Time Out HH:MM, or "" for an open visit - input
+//             string reason - Reason text - input
+//             string support - Intervention Used text - input
+//             boolean|null scm - SCM answer - input
+//             string notes - Notes text - input
+//             string staff - Behavior Specialist(s) - input
+//             string teacher - Teacher Came From - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const visit = (id, room, sid, name, date, tin, tout, reason, support, scm, notes, staff, teacher) => ({
   id, demo: true, Room: room, "Student ID": sid, Student: name, Date: date, "Time In": tin, "Time Out": tout,
   Reason: reason, "Intervention Used": support, "SCM Used": scm, Notes: notes, "Staff Member": staff,
@@ -208,7 +291,18 @@ const A_YEAR_AGO = day(-365), EARLIEST = day(-400);
   page.on("request", r => { if (/microsoft|msal|sharepoint|office|live\.com|windows\.net/i.test(new URL(r.url()).hostname)) microsoft.push(r.url()); });
 
   let passed = 0, failed = 0, shotNo = 0, stoppedAt = "";
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: pause
+  // Description: Waits so a person watching can follow (shortened in --fast / --headless).
+  // Parameters: number ms - pause length in milliseconds - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const pause = ms => page.waitForTimeout(FAST || HEADLESS ? Math.min(ms, 150) : ms);
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: expect
+  // Description: Records one check as ok or FAIL; a FAIL stops the current step.
+  // Parameters: boolean cond - whether the check passed - input
+  //             string msg - what was checked - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const expect = (cond, msg) => {
     if (cond) { passed++; log(`    ok   ${msg}`); return; }
     failed++; log(`    FAIL ${msg}`);
@@ -218,6 +312,11 @@ const A_YEAR_AGO = day(-365), EARLIEST = day(-400);
   // off to one side, so the tour never taps or types into a screen that is still moving.
   // (Checking positions alone isn't enough: on a slide's first frame the incoming screen still
   // reads as fully off to the side. So also wait until no CSS transition is running or pending.)
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: settled
+  // Description: Waits until no screen is sliding and no CSS transition is running.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const settled = async () => {
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     await page.waitForFunction(() =>
@@ -232,16 +331,32 @@ const A_YEAR_AGO = day(-365), EARLIEST = day(-400);
     const raw = page[action].bind(page);
     page[action] = async (...args) => { await settled(); return raw(...args); };
   }
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: notShifted
+  // Description: Checks the app isn't scrolled sideways, reporting what caused it if it is.
+  // Parameters: string when - label for the report line - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const notShifted = async when => {
     const state = await page.evaluate(() => ({ left: document.getElementById("app").scrollLeft, scrolls: window.__appScrolls || [] }));
     expect(state.left === 0, `screen is not shifted sideways (${when})${state.left ? ` — ${state.scrolls.join("; ")}` : ""}`);
   };
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: shot
+  // Description: Takes a numbered screenshot after the screen settles (with a sideways check).
+  // Parameters: string name - screenshot file label - input
+  //             Object options - { check } false skips the settle/shift check - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const shot = async (name, { check = true } = {}) => {
     if (check) { await settled(); await page.waitForTimeout(250); await notShifted(name); }
     const file = path.join(SHOTS, `${String(++shotNo).padStart(2, "0")}-${name}.png`);
     await page.screenshot({ path: file });
     log(`    shot ${path.basename(file)}`);
   };
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: caption
+  // Description: Shows the current tour step in a small caption in the demo banner's corner.
+  // Parameters: string text - step description - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const caption = async text => {
     await page.evaluate(t => {
       let el = document.getElementById("tourCaption");
@@ -255,6 +370,11 @@ const A_YEAR_AGO = day(-365), EARLIEST = day(-400);
       el.textContent = "Tour: " + t;
     }, text).catch(() => {});
   };
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: screenIs
+  // Description: Waits until the named screen is active, settled, and no toast covers it.
+  // Parameters: string name - data-screen value - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const screenIs = async name => {
     try {
       await page.waitForFunction(n => document.querySelector(".screen.active")?.dataset.screen === n, name, { timeout: 6000 });
@@ -265,9 +385,30 @@ const A_YEAR_AGO = day(-365), EARLIEST = day(-400);
       return true;
     } catch { return false; }
   };
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: text
+  // Description: Returns the trimmed text of the first matching element.
+  // Parameters: string selector - CSS selector - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const text = async selector => (await page.textContent(selector) || "").trim();
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: visible
+  // Description: Reports whether the first matching element is visible.
+  // Parameters: string selector - CSS selector - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const visible = selector => page.isVisible(selector);
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: count
+  // Description: Counts the elements matching a selector.
+  // Parameters: string selector - CSS selector - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const count = selector => page.locator(selector).count();
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: step
+  // Description: Runs one named tour step; after a failure, later steps are skipped and logged.
+  // Parameters: string title - step name - input
+  //             Function body - async step actions - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const step = async (title, body) => {
     if (stoppedAt) { log(`  SKIP ${title}`); return; }
     log(`  STEP ${title}`);
@@ -589,6 +730,11 @@ const A_YEAR_AGO = day(-365), EARLIEST = day(-400);
   await step("Phone width: no sideways scrolling", async () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForSelector("#recentList .recent-card");
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: overflow
+    // Description: Measures sideways overflow (px) of one screen's content area at phone width.
+    // Parameters: string screen - data-screen value - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const overflow = async screen => page.evaluate(s => { const el = document.querySelector(`[data-screen="${s}"] .panel-inner`); return el.scrollWidth - el.clientWidth; }, screen);
     expect(await overflow("recent") <= 0, "Recent fits a phone");
     await shot("phone-recent");
@@ -621,18 +767,40 @@ const A_YEAR_AGO = day(-365), EARLIEST = day(-400);
 ## `~/.pace/tests/student-history.test.js`
 
 ~~~~js
-// Local-only tests for the STUDENT HISTORY PATCH. Never committed (see ~/.claude/CLAUDE.md).
-// Run:  node ~/.pace/tests/student-history.test.js <path-to-project-copy>
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller
+// Creation Date: November 23, 2026
+// Filename: student-history.test.js
+// Purpose: Local-only checks for the STUDENT HISTORY PATCH (never committed). Usage:
+//          node ~/.pace/tests/student-history.test.js <path-to-project-copy>. Covers the pure
+//          VISIT_HISTORY rules, the Graph per-student and name-list reads, PACE_DATA in demo and
+//          production, and read-only / privacy structure checks.
+///////////////////////////////////////////////////////////////////////////////////////////////
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(process.argv[2] || path.join(require("node:os").homedir(), ".pace", "sandbox", "work"));
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: plain
+// Description: Copies a value out of a vm sandbox as plain JSON so deep-equal works.
+// Parameters: any x - value to copy - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const plain = x => JSON.parse(JSON.stringify(x));
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: src
+// Description: Reads one project file's source text from the copy under test.
+// Parameters: string f - file name - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const src = f => fs.readFileSync(path.join(ROOT, f), "utf8");
 const H = require(path.join(ROOT, "visit-history.js"));
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: local
+// Description: Formats a Date as a local YYYY-MM-DD string.
+// Parameters: Date d - date to format - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const local = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const now = new Date();
 const TODAY = local(now);
@@ -654,6 +822,11 @@ assert.equal(H.clampViewDate(YESTERDAY, TODAY), YESTERDAY);
 assert.ok(H.dayLimit() >= 1e6, "no daily cap, today included");
 
 /* ── student matching: ID when both sides have one, else exact name ── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: v
+// Description: Builds a test visit row, overriding any fields given.
+// Parameters: Object o - fields to override - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const v = (o = {}) => ({ id: "1", Student: "Alex R.", "Student ID": "SIM-001", Date: TODAY, "Time In": "09:00", "Time Out": "09:30", ...o });
 assert.equal(H.belongsToStudent(v(), { id: "SIM-001", name: "Alex R." }), true);
 assert.equal(H.belongsToStudent(v({ "Student ID": "SIM-999" }), { id: "SIM-001", name: "Alex R." }), false, "same name, different ID = different student");
@@ -698,6 +871,11 @@ assert.equal(H.detailModel(v({ "SCM Used": null })).scm, "");
 assert.equal(H.detailModel(v({ "Time Out": "" })).open, true);
 
 /* ── Graph: per-student read is server-filtered, escaped, paged ── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: graphStudentRead
+// Description: Checks the Graph per-student read, the per-date read, and the name-list read.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function graphStudentRead() {
   const ctx = vm.createContext({
     console, APP_MODE: "production",
@@ -745,6 +923,11 @@ async function graphStudentRead() {
 }
 
 /* ── PACE_DATA.getStudentVisits in demo (localStorage only, zero Graph) and production ── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: providerStudentRead
+// Description: Checks PACE_DATA history reads in demo (zero Graph) and production.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function providerStudentRead() {
   const store = new Map();
   const localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, x) => store.set(k, String(x)), removeItem: k => store.delete(k) };
@@ -807,6 +990,11 @@ async function providerStudentRead() {
 }
 
 /* ── structural: Recent stays privacy-limited and today-only for writes ── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: structural
+// Description: Checks Recent stays privacy-limited and the history code never writes.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function structural() {
   const app = src("app.js");
   const recentBlock = app.slice(app.indexOf("async function loadRecentActivity"), app.indexOf("/* ── DEMO: reset control"));
@@ -828,4 +1016,67 @@ function structural() {
   structural();
   console.log("student-history tests: all passed");
 })().catch(err => { console.error(err); process.exit(1); });
+~~~~
+
+## `~/.pace/tools/doc-audit.js`
+
+~~~~js
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller
+// Creation Date: November 23, 2026
+// Filename: doc-audit.js
+// Purpose: Read-only check that every PACE script follows the house documentation style: a file
+//          header (Author / Creation Date / Filename / Purpose) and a Function Name /
+//          Description / Parameters block directly above every named function, with 95-slash
+//          bars. Usage: node ~/.pace/tools/doc-audit.js <dir> [file ...]. Exits 1 on problems.
+///////////////////////////////////////////////////////////////////////////////////////////////
+const fs = require("fs");
+const path = require("path");
+const dir = process.argv[2];
+const files = process.argv.length > 3 ? process.argv.slice(3) : fs.readdirSync(dir).filter(f => f.endsWith(".js"));
+const BAR = "/".repeat(95);
+const problems = [];
+const MODULES = new Set(["RECENT_ACTIVITY", "PACE_VISIT_CORRECTIONS", "VISIT_HISTORY"]);
+const KEYWORDS = new Set(["if", "for", "while", "switch", "catch", "function", "return", "with"]);
+
+for (const file of files) {
+  const lines = fs.readFileSync(path.join(dir, file), "utf8").split(/\r?\n/);
+  // File header
+  const head = lines.slice(0, 6).join("\n");
+  if (lines[0] !== BAR || !/\/\/ Author: /.test(head) || !/\/\/ Creation Date: /.test(head) || !new RegExp(`// Filename: ${file.replace(".", "\\.")}`).test(head) || !/\/\/ Purpose: /.test(head)) {
+    problems.push(`${file}:1 file header missing or incomplete (Author / Creation Date / Filename / Purpose)`);
+  }
+  // Bar lines must be exactly 95 slashes
+  lines.forEach((l, i) => { if (/^\s*\/{20,}\s*$/.test(l) && l.trim() !== BAR) problems.push(`${file}:${i + 1} separator bar is ${l.trim().length} slashes, not 95`); });
+
+  lines.forEach((line, i) => {
+    const code = line.replace(/\/\/.*$/, "");
+    const indent = line.match(/^\s*/)[0].length;
+    let name = null;
+    let m;
+    if ((m = code.match(/^\s*(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/))) name = m[1];
+    else if ((m = code.match(/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/))) name = m[1];
+    else if ((m = code.match(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{\s*(?:.*\})?\s*$/)) && !KEYWORDS.has(m[1]) && indent >= 2 && indent <= 4) name = m[1];
+    if (!name || MODULES.has(name)) return;
+    // Look back for the header block, skipping blank and plain comment lines
+    let j = i - 1;
+    while (j >= 0 && lines[j].trim() === "") j--;
+    if (j < 0 || lines[j].trim() !== BAR) { problems.push(`${file}:${i + 1} ${name}: no header block directly above`); return; }
+    const block = [];
+    let k = j - 1;
+    while (k >= 0 && lines[k].trim() !== BAR) { block.unshift(lines[k].trim()); k--; }
+    const text = block.join("\n");
+    if (!new RegExp(`^// Function Name: ${name.replace(/\$/g, "\\$")}$`, "m").test(text)) problems.push(`${file}:${i + 1} ${name}: "Function Name:" missing or doesn't match`);
+    if (!/^\/\/ Description: \S/m.test(text)) problems.push(`${file}:${i + 1} ${name}: "Description:" missing`);
+    if (!/^\/\/ Parameters: \S/m.test(text)) problems.push(`${file}:${i + 1} ${name}: "Parameters:" missing`);
+    else {
+      const params = text.slice(text.indexOf("// Parameters:"));
+      if (!/^\/\/ Parameters: none\b/m.test(params) && !/- (input|output|input\/output)\b/.test(params.replace(/\n\/\/\s*/g, " "))) {
+        problems.push(`${file}:${i + 1} ${name}: Parameters don't end with "- input" / "- output"`);
+      }
+    }
+  });
+}
+console.log(problems.length ? problems.join("\n") : "No problems found.");
+console.log(`\n${problems.length} problem(s) in ${files.length} file(s).`);
 ~~~~

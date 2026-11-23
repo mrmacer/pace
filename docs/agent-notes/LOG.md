@@ -20,6 +20,43 @@ Entry template:
 
 ---
 
+## 11-23-2026 (evening) — House documentation style on every function
+
+**Agent:** Claude Code (Claude Opus 5.5), Windows PC.
+
+### Asked (verbatim)
+
+> was documentation added to the functions? this app has a specific style of documenttaion that must be followed and applied to all functions in all scripts
+
+### Decisions and why
+
+- Wrote a read-only checker (now `~/.pace/tools/doc-audit.js` in the local
+  kit) and ran it over every app script. It found 10 gaps:
+  - `loadRecentActivity`: the agent had put a new variable between the header
+    block and the function (moved above the block; description updated to say
+    it reads any chosen day).
+  - Two older functions with no block: `showNotesRequirementError`
+    (`app.js`) and `findSavedPaceVisit` (`graph.js`).
+  - Seven small named helpers inside other functions: `row`, `text`, `has`
+    (×2), `joined`, `collate`, `key`.
+- All 15 app scripts now pass. Comments only; no code behavior changed.
+- The local kit scripts (`tour.js`, `student-history.test.js`,
+  `doc-audit.js`) were brought to the same style. The tour now runs the
+  checker on the app scripts and kit scripts every time, so a missing block
+  fails the run.
+- **Not changed, asked R-E:** the 13 test files in the repo's `tests/` folder
+  (Greg's) don't follow the style at all (102 functions, no file headers).
+- CONTEXT.md now spells out the exact style, with an example.
+
+### Verified how
+
+- `doc-audit.js`: 0 problems across all 15 app scripts and all kit scripts.
+- Visible tour rerun after the change: `browser checks 136/136 passed`. The
+  tour with the new checks: 17 of 18 pass (four documentation checks pass); the
+  one failure is the known `live-visit-notes` line-ending test problem.
+
+---
+
 ## 11-23-2026 (later still) — Full history, search by name, US formats
 
 **Agent:** Claude Code (Claude Opus 5.5), Windows PC.

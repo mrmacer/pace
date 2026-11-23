@@ -1538,6 +1538,12 @@ function renderNotesScreen() {
   if (errorEl) errorEl.classList.add("hidden");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: showNotesRequirementError
+// Description: Shows the required-Notes message under the Notes field without clearing any
+//              text the staff member already typed.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function showNotesRequirementError() {
   const el = document.getElementById("notesError");
   if (el) { el.textContent = PACE_VISIT_WORKFLOW.NOTES_REQUIREMENT_MESSAGE; el.classList.remove("hidden"); }
@@ -2062,19 +2068,20 @@ document.getElementById("confirmDeleteVisitBtn").addEventListener("click", async
   errorEl.classList.remove("hidden");
 });
 
-///////////////////////////////////////////////////////////////////////////////////////////////
-// Function Name: loadRecentActivity
-// Description: Reads today's completed visits and renders their privacy-safe cards. The
-//              provider performs the bounded read, while RECENT_ACTIVITY enforces completion,
-//              sorting, room scope, and the display allow-list. Notes, IDs, email addresses,
-//              and raw timestamps are intentionally never rendered here. Provider failures
-//              result in the retry/error panel.
-// Parameters: none
-///////////////////////////////////////////////////////////////////////////////////////////////
 // STUDENT HISTORY PATCH: increments on every Recent load so a slow response
 // for a day staff already stepped past can never overwrite the newer day.
 let recentLoadSeq = 0;
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadRecentActivity
+// Description: Reads the chosen day's completed visits (STATE.recentDate, today by default)
+//              and renders their privacy-safe cards. The provider performs the bounded
+//              per-day read, while RECENT_ACTIVITY enforces completion, sorting, room scope,
+//              and the display allow-list. Notes, IDs, email addresses, and raw timestamps are
+//              intentionally never rendered here. Only today's cards offer Edit and Delete.
+//              Provider failures result in the retry/error panel.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function loadRecentActivity() {
   const listEl = document.getElementById("recentList");
   const refreshBtn = document.getElementById("recentRefreshBtn");
@@ -2447,6 +2454,12 @@ function historyCardHtml(visit, index, today) {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 function visitDetailsHtml(visit) {
   const d = VISIT_HISTORY.detailModel(visit);
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: row
+  // Description: Builds one label/value line of the Details panel, or nothing when empty.
+  // Parameters: string label - row label, escaped here - input
+  //             string value - row value, already escaped by the caller - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const row = (label, value) => value
     ? `<div class="confirm-row"><span class="confirm-row-label">${escHtml(label)}</span><span class="confirm-row-value">${value}</span></div>`
     : "";

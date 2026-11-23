@@ -404,17 +404,87 @@ const GRAPH = {
     const date = String(localDate || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("A valid visit date is required.");
 
+    return this._getPaceVisitsWhere(schema => {
+      const dateField = schema.Date;
+      if (!dateField) throw new Error("IEP_Pace_Visits Date column was not found.");
+      const [year, month, day] = date.split("-").map(Number);
+      const nextDate = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+      return `fields/${dateField} ge '${date}T00:00:00Z' and fields/${dateField} lt '${nextDate}T00:00:00Z'`;
+    });
+  },
+
+  // STUDENT HISTORY PATCH: bounded per-student read for Visit History. Graph
+  // filters on the confirmed live "Student" text column, so only this one
+  // student's rows reach the iPad — never a school-year dump of everyone.
+  // Same non-indexed-query header and paging as the per-date read above.
+  // The name is OData-escaped (' -> ''), so "O'Brien" is a literal value and
+  // can't break or widen the filter. PACE_DATA then narrows by Student ID
+  // where one exists (VISIT_HISTORY.belongsToStudent), so two students who
+  // share a name are still told apart.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getPaceVisitsForStudentByDisplayName
+  // Description: Reads every PACE visit whose Student value equals one exact name, converting
+  //              field keys back to display names.
+  // Parameters: string studentName - exact student name as written on visit rows - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  async getPaceVisitsForStudentByDisplayName(studentName) {
+    const name = String(studentName || "").trim();
+    if (!name) throw new Error("A student is required to load visit history.");
+    return this._getPaceVisitsWhere(schema => {
+      const studentField = schema.Student;
+      if (!studentField) throw new Error("IEP_Pace_Visits Student column was not found.");
+      return `fields/${studentField} eq '${name.replace(/'/g, "''")}'`;
+    });
+  },
+
+  // STUDENT HISTORY PATCH: every distinct Student name that has EVER had a
+  // PACE visit (all school years), so staff can search past students by name
+  // even when they're not on this year's roster. Reads only the Student
+  // column ($select) across the whole list, following paging; no other
+  // visit data is downloaded.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getPaceVisitStudentNames
+  // Description: Returns the distinct, trimmed Student values found on IEP_Pace_Visits.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  async getPaceVisitStudentNames() {
     const [siteId, listId, schema] = await Promise.all([
       this.getSiteId(),
       this.getListId(CONFIG.LISTS.paceVisits),
       this.getListSchema(CONFIG.LISTS.paceVisits)
     ]);
-    const dateField = schema.Date;
-    if (!dateField) throw new Error("IEP_Pace_Visits Date column was not found.");
+    const studentField = schema.Student;
+    if (!studentField) throw new Error("IEP_Pace_Visits Student column was not found.");
+    let path = `sites/${siteId}/lists/${listId}/items?$expand=fields($select=${studentField})&$top=200`;
+    const names = new Map();
+    while (path) {
+      const data = await this._get(path);
+      (data.value || []).forEach(item => {
+        const name = String(item.fields?.[studentField] ?? "").trim();
+        if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+      });
+      const nextLink = data["@odata.nextLink"];
+      path = nextLink ? nextLink.replace(`${this._BASE}/`, "") : null;
+    }
+    return [...names.values()];
+  },
 
-    const [year, month, day] = date.split("-").map(Number);
-    const nextDate = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
-    const filter = `fields/${dateField} ge '${date}T00:00:00Z' and fields/${dateField} lt '${nextDate}T00:00:00Z'`;
+  // Shared by the per-date and per-student reads: resolves the live schema,
+  // applies one Graph $filter built from it, follows paging, and maps every
+  // row back to display-name keys (plus id and Created).
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: _getPaceVisitsWhere
+  // Description: Runs one filtered, paged IEP_Pace_Visits read and returns display-name rows.
+  // Parameters: Function buildFilter - receives the display->internal schema and returns an
+  //                                    OData $filter expression - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  async _getPaceVisitsWhere(buildFilter) {
+    const [siteId, listId, schema] = await Promise.all([
+      this.getSiteId(),
+      this.getListId(CONFIG.LISTS.paceVisits),
+      this.getListSchema(CONFIG.LISTS.paceVisits)
+    ]);
+    const filter = buildFilter(schema);
     let path = `sites/${siteId}/lists/${listId}/items?$expand=fields&$filter=${encodeURIComponent(filter)}&$top=200`;
     const items = [];
 

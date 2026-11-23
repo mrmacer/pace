@@ -11,7 +11,7 @@
 //          for synchronized SharePoint data.
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-const CACHE_NAME = "pace-tracker-shell-v21"; // LIVE VISIT NOTES PATCH (pre-start and active-note editing); prior v20: Notes minimum patch
+const CACHE_NAME = "pace-tracker-shell-v22"; // STUDENT HISTORY PATCH (past days + per-student Visit History); prior v21: live visit notes
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -24,6 +24,7 @@ const SHELL_FILES = [
   "./graph.js",
   "./roster.js",
   "./recent-activity.js",
+  "./visit-history.js",
   "./visit-workflow.js",
   "./visit-corrections.js",
   "./student-select.js",

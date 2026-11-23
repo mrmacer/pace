@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-US">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -381,9 +381,21 @@
       <button class="btn-text btn-refresh" id="recentRefreshBtn" type="button">Refresh</button>
     </header>
     <div class="panel-inner">
+      <!-- STUDENT HISTORY PATCH: look back at any earlier day (read-only),
+           or jump to one student's full Visit History. -->
+      <div class="history-tools">
+        <div class="day-bar" role="group" aria-label="Choose a day to view">
+          <button class="day-step-btn" id="recentPrevDayBtn" type="button" aria-label="Previous day">&lsaquo; Prev day</button>
+          <input type="date" class="day-input" id="recentDateInput" aria-label="Day to view">
+          <button class="day-step-btn" id="recentNextDayBtn" type="button" aria-label="Next day">Next day &rsaquo;</button>
+        </div>
+        <button class="btn-text hidden" id="recentTodayBtn" type="button">Back to today</button>
+        <button class="btn btn-secondary btn-full find-student-btn" id="findStudentHistoryBtn" type="button">Look up a student's visit history</button>
+      </div>
       <p class="recent-scope" id="recentScope">Today</p>
       <div id="recentList" class="recent-list"><p class="empty-hint">Loading…</p></div>
-      <p class="correction-hint">Today's visits can be edited here. For an older entry, contact an administrator.</p>
+      <p class="correction-hint" id="recentTodayHint">Today's visits can be edited here. For an older entry, contact an administrator.</p>
+      <p class="correction-hint hidden" id="recentPastHint">Past days are view-only. For a correction to an older entry, contact an administrator.</p>
       <!-- Demo-only admin control (spec §11) — hidden by default, shown by
            app.js only when APP_MODE === "demo". -->
       <button class="btn-reset-demo hidden" id="resetDemoBtn">Reset Demo Data</button>
@@ -406,6 +418,38 @@
     </div>
   </section>
 
+  <!-- ── STUDENT HISTORY PATCH: find a student ──────────────────────── -->
+  <section class="screen" data-screen="historySearch">
+    <header class="panel-header">
+      <button class="btn-back" id="historySearchBackBtn" type="button">&larr; Back</button>
+      <h2 class="panel-title">Look Up a Student</h2>
+      <span></span>
+    </header>
+    <div class="panel-inner">
+      <div class="student-search-bar">
+        <label class="walk-field-label" for="historyStudentSearch">Search by student name</label>
+        <input type="text" id="historyStudentSearch" class="search-input search-input-hero" placeholder="Start typing a name…" autocomplete="off" autocapitalize="words">
+        <p class="roster-count" id="historyRosterCount" aria-live="polite"></p>
+      </div>
+      <div id="historyStudentGrid" class="student-grid"><p class="empty-hint">Loading students…</p></div>
+    </div>
+  </section>
+
+  <!-- ── STUDENT HISTORY PATCH: one student's visits, every day, read-only ── -->
+  <section class="screen" data-screen="history">
+    <header class="panel-header">
+      <button class="btn-back" id="historyBackBtn" type="button">&larr; Back</button>
+      <h2 class="panel-title">Visit History</h2>
+      <button class="btn-text btn-refresh" id="historyRefreshBtn" type="button">Refresh</button>
+    </header>
+    <div class="panel-inner">
+      <h3 class="history-student-name" id="historyStudentName"></h3>
+      <p class="recent-scope history-summary" id="historySummary"></p>
+      <div id="historyList" class="recent-list"><p class="empty-hint">Loading…</p></div>
+      <p class="correction-hint">Visit history is view-only. Today's visits can be edited from Recent Activity.</p>
+    </div>
+  </section>
+
 </div>
 
 <div id="toast" class="toast hidden"></div>
@@ -417,6 +461,7 @@
 <script src="iep-app-users.js"></script>
 <script src="roster.js"></script>
 <script src="recent-activity.js"></script>
+<script src="visit-history.js"></script>
 <script src="visit-workflow.js"></script>
 <script src="visit-corrections.js"></script>
 <script src="student-select.js"></script>

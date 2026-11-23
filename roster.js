@@ -103,6 +103,16 @@ const ROSTER = {
   ///////////////////////////////////////////////////////////////////////////////////////////////
   getPaceEnabled() { return this._students.filter(s => s.active && s.paceEnabled); },
 
+  // STUDENT HISTORY PATCH: the whole loaded roster, regardless of Active /
+  // PACE Enabled. Used only to tell apart two current students who share a
+  // name when looking back at visit history; never offered for new visits.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getAll
+  // Description: Returns every loaded roster student (any Active / PACE Enabled state).
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  getAll() { return this._students.slice(); },
+
   ///////////////////////////////////////////////////////////////////////////////////////////////
   // Function Name: find
   // Description: Finds one normalized student by stable roster id.

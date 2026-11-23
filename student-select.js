@@ -64,6 +64,12 @@ const PACE_STUDENT_SELECT = {
   // Parameters: array students - roster to sort alphabetically - input
   ///////////////////////////////////////////////////////////////////////////////////////////////
   sort(students) {
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: collate
+    // Description: Case-insensitive, locale-aware string comparator for roster sorting.
+    // Parameters: string a - first value - input
+    //             string b - second value - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const collate = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" });
     return (Array.isArray(students) ? students : []).slice().sort((a, b) =>
       collate(this.sortKey(a), this.sortKey(b)) ||

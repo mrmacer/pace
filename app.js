@@ -127,20 +127,22 @@ function todayISODate() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-// "August 20, 2026" from a "YYYY-MM-DD" string, parsed as LOCAL date parts
-// (never `new Date("YYYY-MM-DD")`, which parses as UTC midnight and can
-// print the wrong day in negative-UTC-offset timezones — the same class of
-// bug todayISODate() above was fixed for).
+// US date format for everything staff see: "08-20-2026" (MM-DD-YYYY), from
+// the stored "YYYY-MM-DD" string, by plain string rearrangement. Never
+// `new Date("YYYY-MM-DD")`, which parses as UTC midnight and can print the
+// wrong day in US time zones, and never the device's locale, which could
+// show another country's order. Stored values stay YYYY-MM-DD (SharePoint
+// and the date picker require it).
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // Function Name: fmtLongDate
-// Description: Formats an ISO date for human-readable confirmation screens.
+// Description: Formats a stored YYYY-MM-DD date as US MM-DD-YYYY for display.
 // Parameters: string dateStr - ISO "YYYY-MM-DD" date to format - input
 ///////////////////////////////////////////////////////////////////////////////////////////////
 function fmtLongDate(dateStr) {
   const d = dateOnly(dateStr);
-  if (!d) return "—";
-  const [y, m, day] = d.split("-").map(Number);
-  return new Date(y, m - 1, day).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "—";
+  const [y, m, day] = d.split("-");
+  return `${m}-${day}-${y}`;
 }
 // SharePoint may hand back "Date" as a bare "YYYY-MM-DD" (what this app
 // writes) or as a full ISO datetime (if the column is a true Date/Time
@@ -260,7 +262,12 @@ const STATE = {
   deleting: false,        // Prevents duplicate delete submissions.
   saving: false,          // Prevents duplicate create/update submissions.
   exitTarget: null,       // the open-visit row being closed
-  duplicateTarget: null   // the open-visit row that blocked a new entry
+  duplicateTarget: null,  // the open-visit row that blocked a new entry
+  // STUDENT HISTORY PATCH: deliberately NOT cleared by resetTrip() — they
+  // describe what the Recent/History screens are showing, not a visit draft.
+  recentDate: "",         // Local YYYY-MM-DD day shown on Recent Activity ("" = today).
+  historyStudent: null,   // { id, name } whose Visit History is open.
+  historyReturn: "recent" // Screen the Visit History Back button returns to.
 };
 
 // Live-visit note drafts are keyed only by the existing provider item id.
@@ -913,6 +920,7 @@ function renderCurrentlyInPace() {
           <span class="current-card-meta">In: ${escHtml(fmt12h(v["Time In"]))} · ${elapsedMinutesSince(dateOnly(v.Date), v["Time In"])} min</span>
           ${v.Reason ? `<span class="current-card-meta">${escHtml(v.Reason)}</span>` : ""}
           ${RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]) ? `<span class="current-card-meta">${escHtml(RECENT_ACTIVITY.formatSpecialistsCompact(v["Behavior Specialist"] || v["Staff Member"]))}</span>` : ""}
+          <button class="history-link-btn" type="button" data-history-item-id="${escHtml(v.id)}">Previous visits</button>
         </div>
         <button class="current-card-exit" data-item-id="${escHtml(v.id)}">MARK COMPLETE</button>
       </div>
@@ -940,6 +948,12 @@ function renderCurrentlyInPace() {
       const draft = activeNoteDraftFor(item);
       if (draft?.timer) { clearTimeout(draft.timer); draft.timer = null; }
       try { await saveActiveVisitNotes(item.id, item); } catch { /* failed state is rendered */ }
+    });
+  });
+  listEl.querySelectorAll("[data-history-item-id]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const item = open.find(row => String(row.id) === btn.dataset.historyItemId);
+      if (item) openStudentHistory(historyStudentFromVisit(item), "room");
     });
   });
   listEl.querySelectorAll(".current-card-exit").forEach(btn => {
@@ -1524,6 +1538,12 @@ function renderNotesScreen() {
   if (errorEl) errorEl.classList.add("hidden");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: showNotesRequirementError
+// Description: Shows the required-Notes message under the Notes field without clearing any
+//              text the staff member already typed.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function showNotesRequirementError() {
   const el = document.getElementById("notesError");
   if (el) { el.textContent = PACE_VISIT_WORKFLOW.NOTES_REQUIREMENT_MESSAGE; el.classList.remove("hidden"); }
@@ -2048,37 +2068,58 @@ document.getElementById("confirmDeleteVisitBtn").addEventListener("click", async
   errorEl.classList.remove("hidden");
 });
 
+// STUDENT HISTORY PATCH: increments on every Recent load so a slow response
+// for a day staff already stepped past can never overwrite the newer day.
+let recentLoadSeq = 0;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // Function Name: loadRecentActivity
-// Description: Reads today's completed visits and renders their privacy-safe cards. The
-//              provider performs the bounded read, while RECENT_ACTIVITY enforces completion,
-//              sorting, room scope, and the display allow-list. Notes, IDs, email addresses,
-//              and raw timestamps are intentionally never rendered here. Provider failures
-//              result in the retry/error panel.
+// Description: Reads the chosen day's completed visits (STATE.recentDate, today by default)
+//              and renders their privacy-safe cards. The provider performs the bounded
+//              per-day read, while RECENT_ACTIVITY enforces completion, sorting, room scope,
+//              and the display allow-list. Notes, IDs, email addresses, and raw timestamps are
+//              intentionally never rendered here. Only today's cards offer Edit and Delete.
+//              Provider failures result in the retry/error panel.
 // Parameters: none
 ///////////////////////////////////////////////////////////////////////////////////////////////
 async function loadRecentActivity() {
   const listEl = document.getElementById("recentList");
   const refreshBtn = document.getElementById("recentRefreshBtn");
   const scopeEl = document.getElementById("recentScope");
+  // STUDENT HISTORY PATCH: the day being viewed, any date back to the
+  // earliest record. Every day lists ALL of its completed visits (no 10-card
+  // cap any more); only today's cards offer Edit + Delete.
+  const today = todayISODate();
+  const viewDate = VISIT_HISTORY.clampViewDate(STATE.recentDate, today);
+  const isToday = viewDate === today;
+  const dayLabel = isToday ? "Today" : fmtWeekdayDate(viewDate);
+  STATE.recentDate = viewDate;
+  renderRecentDayBar(viewDate, today);
+  const loadId = ++recentLoadSeq;
   listEl.innerHTML = `<p class="empty-hint">Loading…</p>`;
-  scopeEl.textContent = "Today";
+  scopeEl.textContent = dayLabel;
   refreshBtn.disabled = true;
   try {
     const result = await PACE_DATA.getRecentVisits({
-      date: todayISODate(),
+      date: viewDate,
       room: STATE.room,
-      limit: 10
+      limit: VISIT_HISTORY.dayLimit(viewDate, today)
     });
-    STATE.paceVisits = result.visits;
+    if (loadId !== recentLoadSeq) return;
+    // STUDENT HISTORY PATCH: this used to overwrite STATE.paceVisits with
+    // these completed-only rows, so the room screen's 30-second re-render
+    // (after Back) dropped every student still in PACE and discarded their
+    // unsaved live-note drafts. STATE.paceVisits belongs to the room only.
 
     const room = CONFIG.ROOMS.find(item => item.id === STATE.room);
     scopeEl.textContent = result.roomScoped && room
-      ? `Today · ${room.label}`
-      : "Today · All PACE rooms";
+      ? `${dayLabel} · ${room.label}`
+      : `${dayLabel} · All PACE rooms`;
 
     if (result.visits.length === 0) {
-      listEl.innerHTML = `<p class="empty-hint">No PACE activity today yet.</p>`;
+      listEl.innerHTML = isToday
+        ? `<p class="empty-hint">No PACE activity today yet.</p>`
+        : `<p class="empty-hint">No completed PACE visits on ${escHtml(fmtWeekdayDate(viewDate))}.</p>`;
       return;
     }
 
@@ -2096,11 +2137,18 @@ async function loadRecentActivity() {
         ${card.specialist ? `<p class="recent-card-specialist">${escHtml(card.specialist)}</p>` : ""}
         ${cardRoom ? `<p class="recent-card-room">${escHtml(cardRoom)}</p>` : ""}
         <div class="recent-card-actions">
-          <button class="recent-edit-btn" type="button" data-recent-edit="${index}">Edit today's visit</button>
-          <button class="recent-delete-btn" type="button" data-recent-delete="${index}" aria-label="Delete this visit" title="Delete this visit">${TRASH_ICON_SVG}</button>
+          ${isToday ? `<button class="recent-edit-btn" type="button" data-recent-edit="${index}">Edit today's visit</button>
+          <button class="recent-delete-btn" type="button" data-recent-delete="${index}" aria-label="Delete this visit" title="Delete this visit">${TRASH_ICON_SVG}</button>` : ""}
+          <button class="history-link-btn" type="button" data-recent-history="${index}">Visit history</button>
         </div>
       </article>`;
     }).join("");
+    listEl.querySelectorAll("[data-recent-history]").forEach(button => {
+      button.addEventListener("click", () => {
+        const visit = result.visits[Number(button.dataset.recentHistory)];
+        if (visit) openStudentHistory(historyStudentFromVisit(visit), "recent");
+      });
+    });
     listEl.querySelectorAll("[data-recent-delete]").forEach(button => {
       button.addEventListener("click", () => {
         const visit = result.visits[Number(button.dataset.recentDelete)];
@@ -2121,15 +2169,17 @@ async function loadRecentActivity() {
       });
     });
   } catch (err) {
+    if (loadId !== recentLoadSeq) return;
     console.error("Failed to load recent activity:", err);
-    scopeEl.textContent = "Today";
+    scopeEl.textContent = dayLabel;
     listEl.innerHTML = `<p class="empty-hint recent-error">Recent activity could not be loaded. Try again.</p>`;
   } finally {
-    refreshBtn.disabled = false;
+    if (loadId === recentLoadSeq) refreshBtn.disabled = false;
   }
 }
 
 document.querySelector('[data-nav="recent"]').addEventListener("click", () => {
+  STATE.recentDate = todayISODate(); // opening Recent from the room always starts on today
   nav("recent", "forward");
   loadRecentActivity();
 });
@@ -2147,6 +2197,283 @@ document.getElementById("resetDemoBtn")?.addEventListener("click", () => {
   refreshRoomVisits();
   if (currentScreenName === "recent") loadRecentActivity();
 });
+
+/* ── STUDENT HISTORY PATCH: earlier days + per-student Visit History ─────
+   Requested by the Behavior Specialists: see a student's visits from
+   previous days. Two read-only ways in:
+     1. Recent Activity's day picker (Prev day / date / Next day) — any
+        earlier day's completed visits, same privacy-limited cards as today.
+     2. Visit History for one student — from "Look up a student's visit
+        history" (roster search), from any Recent card, or from "Previous
+        visits" on a Currently in PACE card. Every visit for that student,
+        all days and rooms, newest first. Full details (including Notes) are
+        rendered only here, and only after a deliberate Details tap.
+   Nothing in this block writes data. Editing and deleting stay today-only
+   (Recent Activity + PACE_DATA.updateVisit()'s own guard). */
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: fmtWeekdayDate
+// Description: Formats a stored YYYY-MM-DD date as US "Monday, 11-17-2026" (weekday in US
+//              English, date as MM-DD-YYYY), from local date parts.
+// Parameters: string dateStr - ISO "YYYY-MM-DD" date to format - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function fmtWeekdayDate(dateStr) {
+  const d = dateOnly(dateStr);
+  if (!VISIT_HISTORY.isIsoDate(d)) return "—";
+  const [y, m, day] = d.split("-").map(Number);
+  const weekday = new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "long" });
+  return `${weekday}, ${fmtLongDate(d)}`;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderRecentDayBar
+// Description: Syncs the Recent Activity day picker and today/past hints to the viewed day.
+// Parameters: string viewDate - day being shown - input
+//             string today - device's local today - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function renderRecentDayBar(viewDate, today) {
+  const input = document.getElementById("recentDateInput");
+  input.max = today;
+  input.value = viewDate;
+  const isToday = viewDate === today;
+  document.getElementById("recentNextDayBtn").disabled = isToday;
+  document.getElementById("recentTodayBtn").classList.toggle("hidden", isToday);
+  document.getElementById("recentTodayHint").classList.toggle("hidden", !isToday);
+  document.getElementById("recentPastHint").classList.toggle("hidden", isToday);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: showRecentDay
+// Description: Switches Recent Activity to another day (clamped to today or earlier) and loads it.
+// Parameters: string date - requested YYYY-MM-DD day - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function showRecentDay(date) {
+  STATE.recentDate = VISIT_HISTORY.clampViewDate(date, todayISODate());
+  loadRecentActivity();
+}
+
+document.getElementById("recentPrevDayBtn").addEventListener("click", () => {
+  showRecentDay(VISIT_HISTORY.shiftDate(STATE.recentDate || todayISODate(), -1));
+});
+document.getElementById("recentNextDayBtn").addEventListener("click", () => {
+  showRecentDay(VISIT_HISTORY.shiftDate(STATE.recentDate || todayISODate(), 1));
+});
+document.getElementById("recentTodayBtn").addEventListener("click", () => showRecentDay(todayISODate()));
+document.getElementById("recentDateInput").addEventListener("change", event => {
+  if (event.target.value === STATE.recentDate) return;
+  showRecentDay(event.target.value);
+});
+
+// A visit row carries both the roster id ("Student ID") and the name. The id
+// keeps two same-named students apart; the name is what Graph filters on.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: historyStudentFromVisit
+// Description: Builds the { id, name } history lookup key from one visit row.
+// Parameters: Object visit - display-name-keyed visit row - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function historyStudentFromVisit(visit) {
+  return { id: String(visit?.["Student ID"] ?? "").trim(), name: String(visit?.Student ?? "").trim() };
+}
+
+let historyStudents = [];
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openHistorySearch
+// Description: Opens the roster search used to pick a student for Visit History.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
+async function openHistorySearch() {
+  document.getElementById("historyStudentSearch").value = "";
+  document.getElementById("historyRosterCount").textContent = "";
+  document.getElementById("historyStudentGrid").innerHTML = `<p class="empty-hint">Loading students…</p>`;
+  nav("historySearch", "forward");
+  // Every roster student, then any other name found on visit rows, so every
+  // student with visits can be found by name.
+  let roster = [];
+  try {
+    roster = await PACE_DATA.getAllStudents();
+  } catch (err) {
+    console.error("Failed to load students for history:", err);
+  }
+  historyStudents = VISIT_HISTORY.lookupStudents(roster, []);
+  renderHistoryStudentGrid(document.getElementById("historyStudentSearch").value);
+  try {
+    const names = await PACE_DATA.getVisitStudentNames();
+    historyStudents = VISIT_HISTORY.lookupStudents(roster, names);
+  } catch (err) {
+    console.error("Failed to load names from visits:", err);
+  }
+  if (currentScreenName === "historySearch") renderHistoryStudentGrid(document.getElementById("historyStudentSearch").value);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: renderHistoryStudentGrid
+// Description: Renders the searchable roster for Visit History using the shared search rules.
+// Parameters: string filter - search text (default "") - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function renderHistoryStudentGrid(filter = "") {
+  const grid = document.getElementById("historyStudentGrid");
+  const model = PACE_STUDENT_SELECT.renderModel(historyStudents, filter);
+  document.getElementById("historyRosterCount").textContent = model.countText;
+  if (model.emptyMessage) {
+    grid.innerHTML = `<p class="empty-hint">${escHtml(model.emptyMessage)}</p>`;
+    return;
+  }
+  grid.innerHTML = model.students.map(s =>
+    `<button class="student-card" type="button" data-history-student-id="${escHtml(s.id)}">${escHtml(PACE_STUDENT_SELECT.displayLabel(s))}</button>`
+  ).join("");
+  grid.querySelectorAll("[data-history-student-id]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const student = historyStudents.find(s => s.id === btn.dataset.historyStudentId);
+      // A name found only on visit rows has no roster id: matched by name.
+      if (student) openStudentHistory({ id: student.nameOnly ? "" : student.id, name: student.name }, "historySearch");
+    });
+  });
+}
+
+document.getElementById("findStudentHistoryBtn").addEventListener("click", openHistorySearch);
+document.getElementById("historyStudentSearch").addEventListener("input", e => renderHistoryStudentGrid(e.target.value));
+document.getElementById("historySearchBackBtn").addEventListener("click", () => nav("recent", "back"));
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openStudentHistory
+// Description: Opens the read-only Visit History screen for one student.
+// Parameters: Object student - { id, name } to look up - input
+//             string returnTo - screen the Back button returns to - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function openStudentHistory(student, returnTo) {
+  const name = String(student?.name || "").trim();
+  if (!name) {
+    showToast("This visit has no student name to look up.", "error");
+    return;
+  }
+  STATE.historyStudent = { id: String(student?.id || "").trim(), name };
+  STATE.historyReturn = SCREENS[returnTo] ? returnTo : "recent";
+  document.getElementById("historyStudentName").textContent = name;
+  nav("history", "forward");
+  loadStudentHistory();
+}
+
+document.getElementById("historyBackBtn").addEventListener("click", () => nav(STATE.historyReturn || "recent", "back"));
+document.getElementById("historyRefreshBtn").addEventListener("click", () => loadStudentHistory());
+
+let historyLoadSeq = 0;
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadStudentHistory
+// Description: Reads the selected student's visits and renders them grouped by day.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
+async function loadStudentHistory() {
+  const student = STATE.historyStudent;
+  if (!student) return;
+  const listEl = document.getElementById("historyList");
+  const summaryEl = document.getElementById("historySummary");
+  const refreshBtn = document.getElementById("historyRefreshBtn");
+  const loadId = ++historyLoadSeq;
+  listEl.innerHTML = `<p class="empty-hint">Loading…</p>`;
+  summaryEl.textContent = "";
+  refreshBtn.disabled = true;
+  try {
+    const visits = await PACE_DATA.getStudentVisits(student);
+    if (loadId !== historyLoadSeq) return;
+    const totals = VISIT_HISTORY.summary(visits);
+    if (totals.visits === 0) {
+      summaryEl.textContent = "No visits";
+      listEl.innerHTML = `<p class="empty-hint">No PACE visits are recorded for ${escHtml(student.name)}.</p>`;
+      return;
+    }
+    summaryEl.textContent = `${totals.visits} visit${totals.visits === 1 ? "" : "s"} on ${totals.days} day${totals.days === 1 ? "" : "s"} · since ${fmtLongDate(totals.earliest)}`;
+    const today = todayISODate();
+    let index = 0;
+    const flat = [];
+    listEl.innerHTML = VISIT_HISTORY.groupByDate(visits).map(group => `
+      <section class="history-day">
+        <h4 class="history-day-label">${escHtml(fmtWeekdayDate(group.date))}${group.date === today ? " · Today" : ""}</h4>
+        ${group.visits.map(visit => { flat.push(visit); return historyCardHtml(visit, index++, today); }).join("")}
+      </section>`).join("");
+    listEl.querySelectorAll("[data-history-details]").forEach(button => {
+      button.addEventListener("click", () => {
+        const panel = listEl.querySelector(`[data-history-panel="${button.dataset.historyDetails}"]`);
+        const visit = flat[Number(button.dataset.historyDetails)];
+        if (!panel || !visit) return;
+        const opening = panel.classList.contains("hidden");
+        // Built on demand: full details never sit in the page until asked for.
+        panel.innerHTML = opening ? visitDetailsHtml(visit) : "";
+        panel.classList.toggle("hidden", !opening);
+        button.textContent = opening ? "Hide details" : "Details";
+        button.setAttribute("aria-expanded", String(opening));
+      });
+    });
+  } catch (err) {
+    if (loadId !== historyLoadSeq) return;
+    console.error("Failed to load visit history:", err);
+    listEl.innerHTML = `<p class="empty-hint recent-error">Visit history could not be loaded. Try again.</p>`;
+  } finally {
+    if (loadId === historyLoadSeq) refreshBtn.disabled = false;
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: roomLabelFor
+// Description: Returns the human-readable room label for an internal room id.
+// Parameters: string roomId - internal room id (or unrecognized legacy value) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function roomLabelFor(roomId) {
+  return CONFIG.ROOMS.find(room => room.id === roomId)?.label || roomId || "";
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: historyCardHtml
+// Description: Builds one privacy-limited Visit History card with a collapsed Details panel.
+// Parameters: Object visit - display-name-keyed visit row - input
+//             number index - position used to wire the Details toggle - input
+//             string today - device's local today - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function historyCardHtml(visit, index, today) {
+  const d = VISIT_HISTORY.detailModel(visit);
+  const time = d.open
+    ? `In ${fmt12h(d.timeIn)} · ${d.date === today ? "In progress" : "Never marked complete"}`
+    : `${fmt12h(d.timeIn)} → ${fmt12h(d.timeOut)}${d.duration === null ? "" : ` · ${d.duration} min`}`;
+  return `<article class="recent-card history-card">
+    <p class="recent-card-time">${escHtml(time)}</p>
+    ${d.reasons.length ? `<p class="recent-card-reason">${escHtml(d.reasons.join(", "))}</p>` : ""}
+    ${d.specialists.length ? `<p class="recent-card-specialist">${escHtml(RECENT_ACTIVITY.formatSpecialistsCompact(d.specialists))}</p>` : ""}
+    ${d.room ? `<p class="recent-card-room">${escHtml(roomLabelFor(d.room))}</p>` : ""}
+    <div class="recent-card-actions">
+      <button class="history-link-btn" type="button" data-history-details="${index}" aria-expanded="false">Details</button>
+    </div>
+    <div class="visit-details hidden" data-history-panel="${index}"></div>
+  </article>`;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: visitDetailsHtml
+// Description: Builds the read-only full-details panel for one visit (shown only on demand).
+// Parameters: Object visit - display-name-keyed visit row - input
+///////////////////////////////////////////////////////////////////////////////////////////////
+function visitDetailsHtml(visit) {
+  const d = VISIT_HISTORY.detailModel(visit);
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: row
+  // Description: Builds one label/value line of the Details panel, or nothing when empty.
+  // Parameters: string label - row label, escaped here - input
+  //             string value - row value, already escaped by the caller - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  const row = (label, value) => value
+    ? `<div class="confirm-row"><span class="confirm-row-label">${escHtml(label)}</span><span class="confirm-row-value">${value}</span></div>`
+    : "";
+  return [
+    row(d.specialists.length > 1 ? "Behavior Specialists" : "Behavior Specialist", d.specialists.map(escHtml).join("<br>")),
+    row("Teacher Came From", escHtml(d.cameFromTeacher)),
+    row("Reason", escHtml(d.reasons.join(", "))),
+    row("Support", escHtml(d.supports.join(", "))),
+    row("SCM", escHtml(d.scm)),
+    d.notes
+      ? `<div class="visit-details-notes"><span class="confirm-row-label">Notes</span><p class="visit-details-notes-text">${escHtml(d.notes)}</p></div>`
+      : `<p class="empty-hint">No notes recorded.</p>`
+  ].join("");
+}
 
 /* ── TEMPORARY PATCH 003 DIAGNOSTIC (production-only, read-only) ─────────
    Remove this whole block (plus the button/overlay markup in index.html

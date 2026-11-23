@@ -128,8 +128,10 @@ Microsoft Graph, MSAL, or SharePoint**.
   empty state. Cards are an allow-list only: student display name, Time
   Out, duration, reason, optional Behavior Specialist, and room only when
   the result is not already room-scoped. Missing-Time-Out legacy/open rows
-  are excluded. No notes, IDs, emails, raw timestamps, history, exports,
-  student filtering, or analytics are rendered.
+  are excluded. No notes, IDs, emails, raw timestamps, exports, or
+  analytics are rendered on these cards. (The STUDENT HISTORY PATCH below
+  adds a day picker and a per-student Visit History; the card allow-list
+  itself is unchanged.)
 - **Same-day editing (PATCH 009)** — every Recent card has an explicit
   **Edit today's visit** action. It preloads the existing Specialist →
   Student → Teacher Came From → Visit Details → Reason → Support → SCM →
@@ -220,6 +222,62 @@ Confirm, same duplicate-open-visit protection, same same-day edit/delete,
 same Recent Activity scoping. Styled with a neutral gray theme
 (`body[data-room="other"]`) deliberately distinct from both room colors, so
 staff can't mistake it for a third physical room at a glance.
+
+### STUDENT HISTORY PATCH — viewing visits from previous days
+
+The Behavior Specialists asked to see a student's visits from earlier days
+(suggested: a student search, a "previous visits" link on a student, or a
+day chooser on Recent — "or both"). All three were added. Everything here is
+**read-only**; no SharePoint schema change was needed.
+
+- **Day picker on Recent Activity** — `‹ Prev day` / date field / `Next day ›`
+  (never past today, no limit going back) plus "Back to today". Every day,
+  today included, lists **all** of that day's completed visits; the old
+  10-newest cap is gone. Only today's cards offer Edit/Delete; earlier days
+  show a "Past days are view-only" hint. It uses the same bounded per-date
+  Graph read and the same room scoping as before (older rows with no room
+  show as "All PACE rooms"). Opening Recent from a room starts on today.
+- **Visit History for one student, full history** — reached three ways:
+  "Look up a student's visit history" on Recent, "Visit history" on any
+  Recent card, and "Previous visits" on a Currently in PACE card. Shows every
+  visit for that student ever recorded (no date limit), newest first,
+  grouped by day, including open visits ("In progress" today, "Never marked
+  complete" for earlier days).
+- **Search by name, any student.** Staff type a name. The search lists every
+  student on the roster (any Active / PACE Enabled state) plus any other name
+  found on visit rows, so every student with visits can be found. Names
+  found on visits come from one read of just the `Student` column
+  (`GRAPH.getPaceVisitStudentNames()`), cached 10 minutes. No labels are
+  added; each visit simply shows its date.
+- **Matching after a name is picked.** Student IDs don't change, so when a
+  visit row and the picked student both have a `Student ID`, the ID decides
+  (keeps two students who share a name apart). Rows with no ID (e.g. written
+  by MAC Walkthrough) match on the exact name, case-insensitive, never partial.
+- **Details (including Notes) only on a deliberate tap.** History cards
+  show the same limited fields as Recent cards. Tapping **Details** builds the
+  full read-only panel (specialists, teacher came from, reason, support, SCM,
+  notes) on demand; it isn't in the page until tapped. Recent Activity cards
+  never show notes, on any day.
+- **Production read is per-student, not a full-list download.**
+  `GRAPH.getPaceVisitsForStudentByDisplayName()` filters on the confirmed
+  `Student` column in Graph (`$filter=fields/<Student> eq '<name>'`, quotes
+  OData-escaped), with the same non-indexed-query header and paging as the
+  per-date read; both now share `GRAPH._getPaceVisitsWhere()`.
+  `PACE_DATA.getStudentVisits()` then applies `VISIT_HISTORY.belongsToStudent()`
+  (matching rule above). Demo filters localStorage only
+  (no Graph).
+- **List-size note for IU29 admins:** like the existing per-date read, this
+  filter runs on a non-indexed column. SharePoint refuses non-indexed filters
+  once a list passes 5,000 items. Before `IEP_Pace_Visits` gets that large,
+  add **indexed columns** for `Date` and `Student` (List settings → Indexed
+  columns). That is additive and needs no code change.
+- **Bug fixed along the way:** `loadRecentActivity()` used to overwrite
+  `STATE.paceVisits` (the room's open-visit cache) with completed-only rows.
+  After Recent → Back, the room's 30-second re-render then dropped every
+  student still in PACE and discarded their unsaved live-note drafts. Recent
+  no longer touches that cache.
+- Pure rules live in `visit-history.js` (`VISIT_HISTORY`); UI is the
+  "STUDENT HISTORY PATCH" block in `app.js`; service-worker cache is `v22`.
 
 ## Known gaps / decisions made without further data model changes
 
@@ -683,6 +741,7 @@ graph.js      — Graph client: schema-mapped CRUD, scoped to 3 lists only
                  (demo-guarded via assertGraphAllowed())
 roster.js     — loads + filters the PACE-enabled student roster
 recent-activity.js — pure Recent selection, sorting, room scope, card allow-list
+visit-history.js — pure past-day / per-student Visit History rules (read-only)
 visit-workflow.js — pure workflow modes, duration validation, open-room selection
 pace-data.js  — PACE_DATA: the one place demo vs. production is decided
 app.js        — screen navigation + all panel logic/state (mode-agnostic —

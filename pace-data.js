@@ -225,6 +225,64 @@ const PACE_DATA = {
     return RECENT_ACTIVITY.select(visits, { date, room, limit });
   },
 
+  // STUDENT HISTORY PATCH: every visit for one student, newest first, across
+  // all days and rooms — read-only. Production asks Graph for only this
+  // student's rows (filtered on the Student column); demo filters its
+  // localStorage copy. Either way the result is narrowed by
+  // VISIT_HISTORY.belongsToStudent() (Student ID when both sides have one)
+  // and room-normalized exactly like getVisits().
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getStudentVisits
+  // Description: Returns one student's visit history, newest first.
+  // Parameters: Object student - { id, name } of the student to look up - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  async getStudentVisits(student = {}) {
+    const name = String(student?.name || "").trim();
+    if (!name) throw new Error("A student is required to load visit history.");
+    const visits = APP_MODE === "demo"
+      ? DemoStorage.getVisits()
+      : enrichVisitContext(await GRAPH.getPaceVisitsForStudentByDisplayName(name));
+    return VISIT_HISTORY.forStudent(normalizeRoomOnRead(visits), { id: student.id, name });
+  },
+
+  // Every student on the roster (any Active / PACE Enabled state), for the
+  // Visit History name search. Never offered for new visits. A roster
+  // failure yields [], so the search still lists names found on visits.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getAllStudents
+  // Description: Returns every roster student, or [] if the roster can't be read.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  async getAllStudents() {
+    if (APP_MODE === "demo") return DEMO_STUDENTS.slice();
+    try {
+      if (!ROSTER.loaded) await ROSTER.refresh();
+      return ROSTER.getAll();
+    } catch {
+      return [];
+    }
+  },
+
+  // Every distinct student name found on visit rows, so a student with visits
+  // can be found by name even if the roster lookup missed them. Cached for
+  // 10 minutes so reopening the search doesn't re-read the whole list.
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: getVisitStudentNames
+  // Description: Returns every distinct student name found on visit rows.
+  // Parameters: none
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  async getVisitStudentNames() {
+    if (APP_MODE === "demo") {
+      return [...new Set(DemoStorage.getVisits().map(v => String(v.Student || "").trim()).filter(Boolean))];
+    }
+    const cache = PACE_DATA._visitNamesCache;
+    if (cache && Date.now() - cache.at < 10 * 60 * 1000) return cache.names;
+    const names = await GRAPH.getPaceVisitStudentNames();
+    PACE_DATA._visitNamesCache = { at: Date.now(), names };
+    return names;
+  },
+  _visitNamesCache: null,
+
   ///////////////////////////////////////////////////////////////////////////////////////////////
   // Function Name: createVisit
   // Description: Creates one visit through the active provider (demo storage or Graph) and
@@ -286,6 +344,11 @@ const PACE_DATA = {
       if (problem) throw new Error(problem);
       if (!PACE_VISIT_CORRECTIONS.hasChanges(entry.original, entry)) throw new Error("No changes to save.");
     }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: has
+    // Description: Reports whether the update carries a value for one logical field.
+    // Parameters: string key - logical entry field name - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const has = key => changes[key] !== undefined;
     if (APP_MODE === "demo") {
       const patch = {};

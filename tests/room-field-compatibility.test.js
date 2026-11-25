@@ -1,14 +1,17 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   ROOM-FIELD-NAME PATCH — focused regression coverage
-
-   Live-visit.test.js and recent-activity.test.js incidentally exercise the
-   room slug<->label conversion, but neither one specifically pins down the
-   thing THIS patch changed: the confirmed live SharePoint display name is
-   "Room", not "PACE Room", and the write/read boundary now tolerates all
-   three of Room / PACE Room / Pace Room. This file is the dedicated
-   coverage for that behavior — see README.md's "ROOM-FIELD-NAME PATCH"
-   section for the full writeup.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 27, 2026
+// Filename: room-field-compatibility.test.js
+// Purpose: ROOM-FIELD-NAME PATCH — focused regression coverage
+//
+//          Live-visit.test.js and recent-activity.test.js incidentally exercise the
+//          room slug<->label conversion, but neither one specifically pins down the
+//          thing THIS patch changed: the confirmed live SharePoint display name is
+//          "Room", not "PACE Room", and the write/read boundary now tolerates all
+//          three of Room / PACE Room / Pace Room. This file is the dedicated
+//          coverage for that behavior — see README.md's "ROOM-FIELD-NAME PATCH"
+//          section for the full writeup.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -30,10 +33,21 @@ const PACE_ROOM_TEST_CONFIG = {
   ]
 };
 const PACE_ROOM_HELPERS_SRC = `
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomLabelForId
+  // Description: Test copy of config.js's room helper: returns the display label for a room id.
+  // Parameters: string id - room id such as "pace-room-1" - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomLabelForId(id) {
     const room = CONFIG.ROOMS.find(r => r.id === id);
     return room ? room.label : (id || "");
   }
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomIdForLabel
+  // Description: Test copy of config.js's room helper: returns the room id for a label or id, or the
+  //              raw value when it isn't a known room.
+  // Parameters: string value - room label or id read from a visit - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomIdForLabel(value) {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
@@ -45,6 +59,12 @@ const PACE_ROOM_HELPERS_SRC = `
 
 /* ── Write side: savePaceVisit() sends the label under all three aliases ── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyWriteSideAliases
+// Description: Checks that a production save sends the room label under all three aliases: Room,
+//              PACE Room and Pace Room.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyWriteSideAliases() {
   const context = vm.createContext({
     console,
@@ -78,6 +98,12 @@ async function verifyWriteSideAliases() {
 
 /* ── mapFields() actually keeps only the real column, drops the others ─── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyMapFieldsKeepsOnlyRealColumn
+// Description: Checks that mapFields() keeps only the alias that matches a real column ("Room")
+//              and drops the others.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyMapFieldsKeepsOnlyRealColumn() {
   const context = vm.createContext({
     console,
@@ -113,6 +139,12 @@ async function verifyMapFieldsKeepsOnlyRealColumn() {
    getVisits(), in demo mode, across all three possible raw key spellings,
    plus an older record with none of them ────────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyReadSideAliasResolution
+// Description: Checks that reads find the room under any of the three aliases and turn the label
+//              back into a room id.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyReadSideAliasResolution() {
   const storage = new Map();
   const context = vm.createContext({
@@ -155,6 +187,12 @@ async function verifyReadSideAliasResolution() {
 
 /* ── Full round trip through PACE_DATA.createVisit() (demo) for both rooms ── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDemoCreateRoundTrip
+// Description: Checks that a demo save stores the room under "Room" and reads it back as the same
+//              room id.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDemoCreateRoundTrip() {
   const storage = new Map();
   const context = vm.createContext({

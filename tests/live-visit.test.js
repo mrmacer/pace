@@ -1,3 +1,13 @@
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 25, 2026
+// Filename: live-visit.test.js
+// Purpose: Covers the live visit lifecycle (Start Visit, then Mark Complete): in demo mode the start
+//          and the completion stay on one row with zero Microsoft calls; in production completion is
+//          one PATCH to the existing row; and production rows get their room, specialist and teacher
+//          back from the locally saved visit context.
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -25,10 +35,21 @@ const PACE_ROOM_TEST_CONFIG = {
   ]
 };
 const PACE_ROOM_HELPERS_SRC = `
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomLabelForId
+  // Description: Test copy of config.js's room helper: returns the display label for a room id.
+  // Parameters: string id - room id such as "pace-room-1" - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomLabelForId(id) {
     const room = CONFIG.ROOMS.find(r => r.id === id);
     return room ? room.label : (id || "");
   }
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomIdForLabel
+  // Description: Test copy of config.js's room helper: returns the room id for a label or id, or the
+  //              raw value when it isn't a known room.
+  // Parameters: string value - room label or id read from a visit - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomIdForLabel(value) {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
@@ -67,6 +88,12 @@ for (const [width, height] of [[1024, 768], [1180, 820]]) {
   assert.ok(width >= 1024 && height >= 768);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDemoSameRowLifecycle
+// Description: Checks in demo mode that Start Visit creates one open row and Mark Complete
+//              finishes that same row, with zero Microsoft calls.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDemoSameRowLifecycle() {
   const storage = new Map();
   let microsoftCalls = 0;
@@ -147,6 +174,12 @@ async function verifyDemoSameRowLifecycle() {
   assert.equal(microsoftCalls, 0, "demo mode must never call Microsoft");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyProductionCompletionPatch
+// Description: Checks that completing a visit in production sends one PATCH to the existing
+//              SharePoint row with the completion fields.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyProductionCompletionPatch() {
   const context = vm.createContext({
     console,
@@ -173,12 +206,19 @@ async function verifyProductionCompletionPatch() {
       "Time Out": "11:10",
       Duration: 35,
       "Intervention Used": "Calm space, Return-to-class plan",
+      "SCM": false,
       "SCM Used": false,
       Notes: "Complete"
     }
   });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyProductionContextEnrichment
+// Description: Checks that production rows missing their room, specialist or teacher get them back
+//              from the locally saved visit context.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyProductionContextEnrichment() {
   const storage = new Map();
   const graph = {

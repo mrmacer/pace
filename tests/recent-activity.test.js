@@ -1,3 +1,12 @@
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 25, 2026
+// Filename: recent-activity.test.js
+// Purpose: Covers RECENT_ACTIVITY and the Recent Activity reads: the card privacy allow-list, date
+//          and room filtering and sorting, the edit model, the demo provider using localStorage only,
+//          and the date-bounded production read.
+///////////////////////////////////////////////////////////////////////////////////////////////
+
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -6,6 +15,11 @@ const vm = require("node:vm");
 const ROOT = path.resolve(__dirname, "..");
 const RecentActivity = require(path.join(ROOT, "recent-activity.js"));
 const now = new Date();
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: localDate
+// Description: Formats a Date as a local YYYY-MM-DD string.
+// Parameters: Date date - date to format - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const TODAY = localDate(now);
 const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
@@ -26,10 +40,21 @@ const PACE_ROOM_TEST_CONFIG = {
   ]
 };
 const PACE_ROOM_HELPERS_SRC = `
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomLabelForId
+  // Description: Test copy of config.js's room helper: returns the display label for a room id.
+  // Parameters: string id - room id such as "pace-room-1" - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomLabelForId(id) {
     const room = CONFIG.ROOMS.find(r => r.id === id);
     return room ? room.label : (id || "");
   }
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomIdForLabel
+  // Description: Test copy of config.js's room helper: returns the room id for a label or id, or the
+  //              raw value when it isn't a known room.
+  // Parameters: string value - room label or id read from a visit - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomIdForLabel(value) {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
@@ -67,6 +92,11 @@ for (const [width, height] of [[1024, 768], [1180, 820]]) {
   assert.ok(height > 44 + 112, `${width}x${height} cannot show header plus a card`);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: visit
+// Description: Builds a Recent Activity visit row with test defaults, replaced by any overrides.
+// Parameters: Object overrides - row fields to replace - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function visit(overrides = {}) {
   return {
     id: "private-id",
@@ -184,6 +214,12 @@ assert.deepEqual(legacy.visits.map(item => item.Student), ["Completed"]);
 // Stored duration can be absent; a valid completed record computes it.
 assert.equal(RecentActivity.cardModel(visit({ Duration: null })).duration, 27);
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDemoProviderUsesLocalStorageOnly
+// Description: Checks that the demo provider reads and writes localStorage only and never calls
+//              Microsoft.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDemoProviderUsesLocalStorageOnly() {
   const storage = new Map();
   let microsoftCalls = 0;
@@ -282,6 +318,12 @@ async function verifyDemoProviderUsesLocalStorageOnly() {
   assert.equal(microsoftCalls, 0);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyProductionReadIsDateBounded
+// Description: Checks that the production Recent Activity read filters by date instead of reading
+//              the whole list.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyProductionReadIsDateBounded() {
   const context = vm.createContext({
     console,
@@ -362,6 +404,7 @@ async function verifyProductionReadIsDateBounded() {
       Duration: 35,
       Reason: "Peer conflict",
       "Intervention Used": "Restorative conversation",
+      "SCM": true,
       "SCM Used": true,
       Notes: "Updated same-day note text",
       "Behavior Specialist": "Marcus Webb, Priya Anand",

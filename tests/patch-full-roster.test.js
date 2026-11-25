@@ -1,16 +1,19 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   FULL ROSTER PATCH — Select Student shows every eligible PACE student on
-   open; the search box filters that complete roster.
-
-   Functional where possible: student-select.js is a pure module (required
-   directly), and eligibility is exercised through the REAL roster.js loaded
-   under node:vm with a stubbed GRAPH — the same source production runs.
-   app.js is never loaded into a DOM in this suite (see
-   patch010-specialists-notes.test.js), so its wiring is asserted
-   structurally, like the other app.js-level tests here.
-
-   Run with: node tests/patch-full-roster.test.js
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: September 21, 2026
+// Filename: patch-full-roster.test.js
+// Purpose: FULL ROSTER PATCH — Select Student shows every eligible PACE student on
+//          open; the search box filters that complete roster.
+//
+//          Functional where possible: student-select.js is a pure module (required
+//          directly), and eligibility is exercised through the REAL roster.js loaded
+//          under node:vm with a stubbed GRAPH — the same source production runs.
+//          app.js is never loaded into a DOM in this suite (see
+//          patch010-specialists-notes.test.js), so its wiring is asserted
+//          structurally, like the other app.js-level tests here.
+//
+//          Run with: node tests/patch-full-roster.test.js
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -31,6 +34,14 @@ const SCHEMA = {
   "Classroom": "field_4", "Active": "field_5", "PACE Enabled": "field_6"
 };
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: row
+// Description: Builds a fake roster list item with the given name and Active/PACE flags.
+// Parameters: number id - list item id - input
+//             string first - first name - input
+//             string last - last name - input
+//             Object flags - { active, pace } eligibility flags, both true by default - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function row(id, first, last, { active = true, pace = true } = {}) {
   const item = { id: String(id), field_1: first, field_2: last, field_3: "Teacher X", field_4: "Room 1" };
   item.field_5 = active;
@@ -51,6 +62,12 @@ const excludedRows = [
   (() => { const r = row(903, "Blank", "PaceBlank"); delete r.field_6; return r; })() // PACE Enabled cell absent => defaults to not eligible
 ];
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadEligible
+// Description: Loads the real roster.js against a stub GRAPH that returns the given rows; returns
+//              the eligible students and the lists that were requested.
+// Parameters: Array rows - fake roster list items - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function loadEligible(rows) {
   const requested = [];
   const context = vm.createContext({
@@ -68,6 +85,11 @@ async function loadEligible(rows) {
   return { eligible: roster.getPaceEnabled(), requested };
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: names
+// Description: Returns just the names from a list of students.
+// Parameters: Array list - student objects - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const names = list => list.map(s => s.name);
 
 (async () => {

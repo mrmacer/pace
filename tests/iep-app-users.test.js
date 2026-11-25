@@ -1,14 +1,17 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PATCH A — IEP_App_Users reader coverage
-
-   Plain-script style, matching this project's other tests (no test
-   framework — assertions throw, Promise.all + process.exitCode surfaces
-   failures). Run with: node tests/iep-app-users.test.js
-
-   Covers only iep-app-users.js in isolation. No app.js/auth.js behavior
-   changes yet in PATCH A, so there is nothing end-to-end to test here —
-   that arrives with the PACE gate patch.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 31, 2026
+// Filename: iep-app-users.test.js
+// Purpose: PATCH A — IEP_App_Users reader coverage
+//
+//          Plain-script style, matching this project's other tests (no test
+//          framework — assertions throw, Promise.all + process.exitCode surfaces
+//          failures). Run with: node tests/iep-app-users.test.js
+//
+//          Covers only iep-app-users.js in isolation. No app.js/auth.js behavior
+//          changes yet in PATCH A, so there is nothing end-to-end to test here —
+//          that arrives with the PACE gate patch.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -17,10 +20,21 @@ const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadModule
+// Description: Runs iep-app-users.js inside the given vm context so its globals are defined there.
+// Parameters: Object context - vm context to load the module into - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function loadModule(context) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, "iep-app-users.js"), "utf8"), context, { filename: "iep-app-users.js" });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: makeContext
+// Description: Builds a production-mode vm context that names the IEP_App_Users list, plus any
+//              overrides (such as a fake GRAPH).
+// Parameters: Object overrides - globals to add or replace in the context - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function makeContext(overrides = {}) {
   const context = vm.createContext({
     console,
@@ -31,6 +45,12 @@ function makeContext(overrides = {}) {
   return context;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyBooleanNormalization
+// Description: Checks that normalizeAppUsersBoolean treats Yes/true/1 variants as true and
+//              everything else as false.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyBooleanNormalization() {
   const context = makeContext();
   loadModule(context);
@@ -46,6 +66,11 @@ async function verifyBooleanNormalization() {
   assert.equal(normalize(null), false, "default with no explicit defaultValue must be false");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDefaultIsMigrationMode
+// Description: Checks that PATCH A ships in migration mode (ENFORCE_APP_USERS is false).
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDefaultIsMigrationMode() {
   const context = makeContext();
   loadModule(context);
@@ -53,6 +78,12 @@ async function verifyDefaultIsMigrationMode() {
   assert.equal(accessConfig.ENFORCE_APP_USERS, false, "PATCH A must ship in migration mode, not enforced mode");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyResolveFindsMatchByEmailCaseInsensitive
+// Description: Checks that resolve() reads IEP_App_Users and finds the signed-in user's row by
+//              email, ignoring case.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyResolveFindsMatchByEmailCaseInsensitive() {
   let calledList = null;
   const context = makeContext({
@@ -93,6 +124,12 @@ async function verifyResolveFindsMatchByEmailCaseInsensitive() {
   assert.deepEqual(JSON.parse(JSON.stringify(appUsers.permissions)), { dailyPulse: false, pace: true, walkthrough: false, adminPanel: false });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyResolveNoMatchReturnsNullCleanly
+// Description: Checks that resolve() returns null, without throwing, when no row matches the
+//              email.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyResolveNoMatchReturnsNullCleanly() {
   const context = makeContext({
     GRAPH: {
@@ -109,6 +146,11 @@ async function verifyResolveNoMatchReturnsNullCleanly() {
   assert.equal(appUsers.lookupError, null, "no match is not an error");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyResolveFailsClosedOnGraphError
+// Description: Checks that a Graph error during resolve() fails closed instead of granting access.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyResolveFailsClosedOnGraphError() {
   const context = makeContext({
     GRAPH: {
@@ -124,6 +166,11 @@ async function verifyResolveFailsClosedOnGraphError() {
   assert.match(appUsers.lookupError, /insufficient privileges/);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDemoModeNeverCallsGraph
+// Description: Checks that resolve() in demo mode never calls Microsoft Graph.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDemoModeNeverCallsGraph() {
   let graphCalled = false;
   const context = makeContext({

@@ -1,17 +1,20 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PATCH C — PACE Room Tracker authorization via IEP_App_Users
-
-   Two layers of coverage, matching this project's existing conventions:
-   1. Behavioral: APP_USERS.decide() exercised directly (iep-app-users.js
-      already has isolated resolve()/normalize coverage from PATCH A — this
-      adds the decision helper PATCH C introduces).
-   2. Static: boot()/index.html are grep-checked (like
-      patch010-specialists-notes.test.js) rather than executed, since app.js
-      queries the live DOM at load time and isn't designed to run under
-      node:vm the way the other three apps' app.js files are.
-
-   Run with: node tests/patch-c-authorization.test.js
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 31, 2026
+// Filename: patch-c-authorization.test.js
+// Purpose: PATCH C — PACE Room Tracker authorization via IEP_App_Users
+//
+//          Two layers of coverage, matching this project's existing conventions:
+//          1. Behavioral: APP_USERS.decide() exercised directly (iep-app-users.js
+//             already has isolated resolve()/normalize coverage from PATCH A — this
+//             adds the decision helper PATCH C introduces).
+//          2. Static: boot()/index.html are grep-checked (like
+//             patch010-specialists-notes.test.js) rather than executed, since app.js
+//             queries the live DOM at load time and isn't designed to run under
+//             node:vm the way the other three apps' app.js files are.
+//
+//          Run with: node tests/patch-c-authorization.test.js
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -22,10 +25,21 @@ const ROOT = path.resolve(__dirname, "..");
 const appSrc = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
 const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadAppUsers
+// Description: Runs iep-app-users.js inside the given vm context so its globals are defined there.
+// Parameters: Object context - vm context to load the module into - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function loadAppUsers(context) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, "iep-app-users.js"), "utf8"), context, { filename: "iep-app-users.js" });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: makeContext
+// Description: Builds a production-mode vm context that names the IEP_App_Users list, plus any
+//              overrides (such as a fake GRAPH).
+// Parameters: Object overrides - globals to add or replace in the context - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function makeContext(overrides = {}) {
   return vm.createContext({
     console,
@@ -35,6 +49,12 @@ function makeContext(overrides = {}) {
   });
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyExplicitFlagOverridesLegacyAllow
+// Description: Checks that a user whose row says PACE = No is denied, even though legacy mode
+//              would otherwise allow them.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyExplicitFlagOverridesLegacyAllow() {
   const context = makeContext({
     GRAPH: {
@@ -52,6 +72,11 @@ async function verifyExplicitFlagOverridesLegacyAllow() {
   assert.equal(decision.reason, "app-users-denied");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyExplicitFlagAllows
+// Description: Checks that a user whose row says PACE = Yes is allowed.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyExplicitFlagAllows() {
   const context = makeContext({
     GRAPH: {
@@ -65,6 +90,12 @@ async function verifyExplicitFlagAllows() {
   assert.equal(appUsers.decide("PACE", true).allowed, true);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyNoRowFallsBackToLegacyAllowed
+// Description: Checks that a user with no IEP_App_Users row falls back to the legacy allowed
+//              behavior.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyNoRowFallsBackToLegacyAllowed() {
   const context = makeContext({
     GRAPH: {
@@ -81,6 +112,11 @@ async function verifyNoRowFallsBackToLegacyAllowed() {
   assert.equal(decision.reason, "legacy-fallback");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyLookupFailureAlwaysDenies
+// Description: Checks that a failed IEP_App_Users lookup always denies access.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyLookupFailureAlwaysDenies() {
   const context = makeContext({
     GRAPH: {
@@ -96,6 +132,11 @@ async function verifyLookupFailureAlwaysDenies() {
   assert.equal(decision.reason, "app-users-lookup-failed");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyAdminWithPaceYesAllowed
+// Description: Checks that an administrator whose row says PACE = Yes is allowed.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyAdminWithPaceYesAllowed() {
   const context = makeContext({
     GRAPH: {
@@ -109,6 +150,12 @@ async function verifyAdminWithPaceYesAllowed() {
   assert.equal(appUsers.decide("PACE", true).allowed, true);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyBootWiring
+// Description: Checks app.js and index.html source to confirm boot() runs the PACE access gate
+//              before the app is shown.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyBootWiring() {
   // Static checks mirroring patch010-specialists-notes.test.js's approach:
   // app.js is not designed to run under node:vm (top-level

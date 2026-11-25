@@ -1,12 +1,15 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   LIVE VISIT NOTES — pre-start notes, same-row draft updates, recovery UX,
-   and completion hand-off coverage.
-
-   The data-layer cases run in demo mode, so they never contact Microsoft.
-   app.js remains a browser-controller file in this repository; its async
-   ordering guarantees are pinned with structural assertions alongside the
-   provider round trips.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: November 4, 2026
+// Filename: live-visit-notes.test.js
+// Purpose: LIVE VISIT NOTES — pre-start notes, same-row draft updates, recovery UX,
+//          and completion hand-off coverage.
+//
+//          The data-layer cases run in demo mode, so they never contact Microsoft.
+//          app.js remains a browser-controller file in this repository; its async
+//          ordering guarantees are pinned with structural assertions alongside the
+//          provider round trips.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -27,11 +30,28 @@ const ROOM_CONFIG = {
 };
 
 const HELPERS = `
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomLabelForId
+  // Description: Test copy of config.js's room helper: returns the display label for a room id.
+  // Parameters: string id - room id such as "pace-room-1" - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomLabelForId(id) { const room = CONFIG.ROOMS.find(r => r.id === id); return room ? room.label : (id || ""); }
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomIdForLabel
+  // Description: Test copy of config.js's room helper: returns the room id for a label or id, or the
+  //              raw value when it isn't a known room.
+  // Parameters: string value - room label or id read from a visit - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomIdForLabel(value) { const raw = String(value ?? "").trim(); if (!raw) return ""; const room = CONFIG.ROOMS.find(r => r.label === raw || r.id === raw); return room ? room.id : raw; }
   const PACE_ROOM_FIELD_CANDIDATES = ["Room", "PACE Room", "Pace Room"];
 `;
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: makeDemo
+// Description: Builds a demo-mode vm context with in-memory localStorage, loads the real data
+//              modules, and returns the provider and stored rows.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function makeDemo() {
   const storage = new Map();
   const context = vm.createContext({
@@ -55,6 +75,13 @@ function makeDemo() {
   return { provider: context.provider, raw: () => JSON.parse(storage.get("paceRoomTrackerDemoData")) };
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: openEntry
+// Description: Builds an open (live-start) visit entry, optionally carrying notes typed before the
+//              visit started.
+// Parameters: string id - visit id, also used as the student id - input
+//             string notes - starting notes text (default empty) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function openEntry(id, notes = "") {
   return {
     id,
@@ -74,6 +101,12 @@ function openEntry(id, notes = "") {
   };
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyPrestartAndActiveNotesStayOnOneRow
+// Description: Checks that pre-start notes and later notes updates are saved on the same open row,
+//              never a second row.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyPrestartAndActiveNotesStayOnOneRow() {
   const demo = makeDemo();
   await demo.provider.createVisit(openEntry("blank"));
@@ -106,6 +139,11 @@ async function verifyPrestartAndActiveNotesStayOnOneRow() {
   assert.equal(completed["Time Out"], "09:42");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyProductionNotesPatchIsPartial
+// Description: Checks that a production notes update PATCHes only the Notes field of the open row.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyProductionNotesPatchIsPartial() {
   const context = vm.createContext({
     console,
@@ -130,6 +168,12 @@ async function verifyProductionNotesPatchIsPartial() {
   assert.equal(callOptions.signal, signal, "the existing Graph update path must accept cancellation for sign-out safety");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyAutosaveCompletionRace
+// Description: Runs app.js's saveActiveVisitNotes and flushActiveNoteSave against stubs to check
+//              that an autosave still in flight can't lose or overwrite newer notes at completion.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyAutosaveCompletionRace() {
   const scheduleMarker = "///////////////////////////////////////////////////////////////////////////////////////////////\n// Function Name: scheduleActiveNoteSave";
   const resumeMarker = "///////////////////////////////////////////////////////////////////////////////////////////////\n// Function Name: resumeActiveNoteDraft";
@@ -148,6 +192,11 @@ async function verifyAutosaveCompletionRace() {
     dateOnly: value => String(value || "").slice(0, 10),
     persistActiveNoteDrafts() {},
     updateActiveNoteStatus() {},
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: scheduleActiveNoteSave
+    // Description: No-op stand-in for app.js's autosave timer, so the test decides when saves run.
+    // Parameters: none
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     scheduleActiveNoteSave() {}
   });
   vm.runInContext(`${saveSource}\n${flushSource}\nthis.saveDraft = saveActiveVisitNotes; this.flushDraft = flushActiveNoteSave;`, context);
@@ -211,6 +260,12 @@ async function verifyAutosaveCompletionRace() {
   assert.equal(failedDraft.savedValue, "retryable note");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyPrivacyAndRaceGuards
+// Description: Checks app.js's source: the recovery buffer stores only note text keyed by visit id
+//              (no student identity), and the save path keeps its race guards.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function verifyPrivacyAndRaceGuards() {
   const persistBody = app.slice(app.indexOf("function persistActiveNoteDrafts()"), app.indexOf("function removeActiveNoteDraft"));
   assert.doesNotMatch(persistBody, /studentName|studentId|Student|email|displayName/i, "the recovery buffer must not store student names or other identity fields");

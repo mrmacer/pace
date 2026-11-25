@@ -226,7 +226,8 @@ const RECENT_ACTIVITY = (() => {
       timeOut: text(visit?.["Time Out"]).slice(0, 5),
       reasons: selections(visit?.Reason),
       supports: selections(visit?.["Intervention Used"]),
-      scmUsed: booleanValue(visit?.["SCM Used"]),
+      // SCM COLUMN PATCH: the live column is "SCM"; "SCM Used" is the older alias.
+      scmUsed: booleanValue(visit?.["SCM"] ?? visit?.["SCM Used"]),
       notes: String(visit?.Notes ?? ""),
       cameFromTeacher: text(visit?.["Teacher Came From"]),
       // PATCH 010: an array (like `reasons`/`supports` above), not the

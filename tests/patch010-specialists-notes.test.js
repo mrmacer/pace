@@ -1,11 +1,14 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PATCH 010 — multiple Behavior Specialists + expanded Notes
-
-   Covers what recent-activity.test.js / live-visit.test.js don't already:
-   structural UI assertions (multi-select markup, no Notes maxlength) and a
-   full-length Notes round-trip through both the demo and production write
-   paths. See README.md "PATCH 010" for the full writeup.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 25, 2026
+// Filename: patch010-specialists-notes.test.js
+// Purpose: PATCH 010 — multiple Behavior Specialists + expanded Notes
+//
+//          Covers what recent-activity.test.js / live-visit.test.js don't already:
+//          structural UI assertions (multi-select markup, no Notes maxlength) and a
+//          full-length Notes round-trip through both the demo and production write
+//          paths. See README.md "PATCH 010" for the full writeup.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -28,10 +31,21 @@ const PACE_ROOM_TEST_CONFIG = {
   ]
 };
 const PACE_ROOM_HELPERS_SRC = `
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomLabelForId
+  // Description: Test copy of config.js's room helper: returns the display label for a room id.
+  // Parameters: string id - room id such as "pace-room-1" - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomLabelForId(id) {
     const room = CONFIG.ROOMS.find(r => r.id === id);
     return room ? room.label : (id || "");
   }
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: paceRoomIdForLabel
+  // Description: Test copy of config.js's room helper: returns the room id for a label or id, or the
+  //              raw value when it isn't a known room.
+  // Parameters: string value - room label or id read from a visit - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   function paceRoomIdForLabel(value) {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
@@ -91,6 +105,12 @@ const LONG_NOTE = [
 ].join("\n");
 assert.ok(LONG_NOTE.length > 500, "fixture note must actually exceed 500 characters");
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyLongNoteRoundTrip
+// Description: Checks that a long Notes value round-trips unchanged through both the demo and
+//              production save paths.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyLongNoteRoundTrip() {
   // Demo path: DemoStorage.createVisit -> stored Notes field.
   const storage = new Map();

@@ -1,15 +1,20 @@
-/* STAFF EDIT + DELETE PATCH tests.
-
-   Plain Node script (repo convention: `node tests/x.test.js`). The real
-   graph.js, pace-data.js, recent-activity.js, visit-workflow.js and
-   visit-corrections.js run together inside one vm context against a fake
-   Microsoft Graph `fetch`, so the whole path is exercised:
-
-     Graph item.id -> Recent Activity row -> editModel().itemId
-       -> PATCH|DELETE sites/{site}/lists/{IEP_Pace_Visits}/items/{id}
-
-   app.js is never loaded into a DOM (repo convention); UI, authorization
-   and regression items are asserted structurally against its source. */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: September 21, 2026
+// Filename: patch-visit-corrections.test.js
+// Purpose: STAFF EDIT + DELETE PATCH tests.
+//
+//          Plain Node script (repo convention: `node tests/x.test.js`). The real
+//          graph.js, pace-data.js, recent-activity.js, visit-workflow.js and
+//          visit-corrections.js run together inside one vm context against a fake
+//          Microsoft Graph `fetch`, so the whole path is exercised:
+//
+//            Graph item.id -> Recent Activity row -> editModel().itemId
+//              -> PATCH|DELETE sites/{site}/lists/{IEP_Pace_Visits}/items/{id}
+//
+//          app.js is never loaded into a DOM (repo convention); UI, authorization
+//          and regression items are asserted structurally against its source.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -17,6 +22,11 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..");
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: read
+// Description: Reads a project file as UTF-8 text.
+// Parameters: string file - path relative to the project folder - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const read = file => fs.readFileSync(path.join(ROOT, file), "utf8");
 const app = read("app.js");
 const html = read("index.html");
@@ -24,11 +34,24 @@ const graphSrc = read("graph.js");
 const paceDataSrc = read("pace-data.js");
 const correctionsSrc = read("visit-corrections.js");
 const sw = read("sw.js");
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: plain
+// Description: Deep-copies a value through JSON so objects from the vm context compare as plain
+//              objects.
+// Parameters: any value - value to copy - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const plain = value => JSON.parse(JSON.stringify(value));
 
 const now = new Date();
 const TODAY = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: functionBody
+// Description: Returns the source of one function, from the start pattern through its matching
+//              closing brace.
+// Parameters: string source - file source text - input
+//             RegExp startPattern - pattern that finds the function's start - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function functionBody(source, startPattern) {
   const start = source.search(startPattern);
   assert.ok(start >= 0, `could not find ${startPattern}`);
@@ -51,6 +74,13 @@ const SCHEMA_COLUMNS = [
   ["Created", "Created"], ["Modified", "Modified"], ["Editor", "Editor"]
 ];
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: makeWorld
+// Description: Builds a fake SharePoint world (site, lists, schema and two visit items) and a
+//              fetch that records every Graph call.
+// Parameters: Object options - { deleteStatus } HTTP status the fake DELETE returns (default 204)
+//              - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function makeWorld({ deleteStatus = 204 } = {}) {
   const items = [
     { id: "42", createdDateTime: `${TODAY}T14:00:00Z`, fields: {
@@ -72,6 +102,11 @@ function makeWorld({ deleteStatus = 204 } = {}) {
     const method = options.method || "GET";
     const rel = String(url).replace("https://graph.microsoft.com/v1.0/", "");
     world.calls.push({ method, rel, body: options.body === undefined ? undefined : JSON.parse(options.body), headers: options.headers });
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: json
+    // Description: Builds a successful fake fetch response carrying the given JSON.
+    // Parameters: Object data - response body - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     const json = data => ({ ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) });
     if (method === "GET" && rel.startsWith("sites/example.sharepoint.test")) return json({ id: "site-id" });
     if (method === "GET" && /^sites\/site-id\/lists\?/.test(rel)) {
@@ -102,6 +137,12 @@ function makeWorld({ deleteStatus = 204 } = {}) {
   return world;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: makeContext
+// Description: Loads the real graph.js, pace-data.js and rule modules into a production vm context
+//              wired to the fake world's fetch.
+// Parameters: Object world - fake SharePoint world from makeWorld() - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function makeContext(world) {
   const storage = new Map();
   const context = vm.createContext({
@@ -127,7 +168,18 @@ function makeContext(world) {
     ROSTER: { loaded: false }
   });
   vm.runInContext(`
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: paceRoomLabelForId
+    // Description: Test copy of config.js's room helper: returns the display label for a room id.
+    // Parameters: string id - room id such as "pace-room-1" - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     function paceRoomLabelForId(id) { const r = CONFIG.ROOMS.find(x => x.id === id); return r ? r.label : (id || ""); }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: paceRoomIdForLabel
+    // Description: Test copy of config.js's room helper: returns the room id for a label or id, or the
+    //              raw value when it isn't a known room.
+    // Parameters: string value - room label or id read from a visit - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     function paceRoomIdForLabel(v) { const raw = String(v ?? "").trim(); if (!raw) return ""; const r = CONFIG.ROOMS.find(x => x.label === raw || x.id === raw); return r ? r.id : raw; }
     const PACE_ROOM_FIELD_CANDIDATES = ["Room", "PACE Room", "Pace Room"];
   `, context);
@@ -140,6 +192,13 @@ function makeContext(world) {
 
 // Reproduces what app.js does when Edit is tapped and saved: the Recent
 // Activity row -> editModel() -> STATE.editOriginal snapshot -> edited entry.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: snapshotFor
+// Description: Builds the original snapshot and an editable copy of a Recent Activity row, the
+//              same way app.js does when Edit is tapped.
+// Parameters: Object T - vm context from makeContext() - input
+//             Object visit - Recent Activity row - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function snapshotFor(T, visit) {
   const edit = T.RECENT_ACTIVITY.editModel(visit, { fallbackRoom: "pace-room-1", validRooms: ["pace-room-1", "pace-room-2"] });
   const original = {
@@ -150,6 +209,13 @@ function snapshotFor(T, visit) {
   return { edit, original, entry: { ...original, behaviors: [...original.behaviors], interventions: [...original.interventions], staffMembers: [...original.staffMembers], original } };
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: recentVisit
+// Description: Reads today's Recent Activity for PACE Room 1 and returns the result plus the visit
+//              with the given id.
+// Parameters: Object T - vm context from makeContext() - input
+//             string id - SharePoint item id - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function recentVisit(T, id) {
   const result = await T.PACE_DATA.getRecentVisits({ date: TODAY, room: "pace-room-1", limit: 10 });
   return { result, visit: result.visits.find(v => v.id === id) };
@@ -157,6 +223,12 @@ async function recentVisit(T, id) {
 
 /* ── Functional: item-id path, PATCH edits ────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyEditPath
+// Description: Checks that an edit PATCHes the right SharePoint item, by item id, with only the
+//              changed fields.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyEditPath() {
   const world = makeWorld();
   const T = makeContext(world);
@@ -203,6 +275,11 @@ async function verifyEditPath() {
   assert.equal(world.items.find(i => i.id === "42").fields.EntryID, "sub-42");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyTimeAndDuration
+// Description: Checks that changing Time Out on an edit recalculates and saves Duration.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyTimeAndDuration() {
   const world = makeWorld();
   const T = makeContext(world);
@@ -231,6 +308,12 @@ async function verifyTimeAndDuration() {
   assert.equal(world.mutations().length, 0);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyNotesRequired
+// Description: Checks that an edit of a visit with blank historical notes can't be saved until
+//              notes are added.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyNotesRequired() {
   const world = makeWorld();
   const T = makeContext(world);
@@ -261,6 +344,11 @@ async function verifyNotesRequired() {
 
 /* ── Functional: DELETE ───────────────────────────────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDeleteRequest
+// Description: Checks that delete sends exactly one DELETE for the visit's item id.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDeleteRequest() {
   const world = makeWorld();
   const T = makeContext(world);
@@ -282,6 +370,11 @@ async function verifyDeleteRequest() {
   assert.equal(after.visits.some(v => v.id === "43"), true);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDeleteRefusesBadIds
+// Description: Checks that deletePaceVisit refuses malformed item ids without any network call.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDeleteRefusesBadIds() {
   for (const bad of ["", "   ", null, undefined, "abc", "42/fields", "42?x=1", "../7", "4 2", "4\n2", "a1"]) {
     const world = makeWorld();
@@ -291,6 +384,12 @@ async function verifyDeleteRefusesBadIds() {
   }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDeleteFailuresKeepRecord
+// Description: Checks that a failed delete (401, 403, 404 or 500) leaves the visit in place and
+//              reports the failure.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDeleteFailuresKeepRecord() {
   for (const status of [401, 403, 404, 500]) {
     const world = makeWorld({ deleteStatus: status });
@@ -313,6 +412,12 @@ async function verifyDeleteFailuresKeepRecord() {
   }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyRunDeleteGuards
+// Description: Checks that the delete runner does nothing unless the delete is confirmed and the
+//              user is authorized.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyRunDeleteGuards() {
   const T = makeContext(makeWorld());
   const visit = { id: "42" };
@@ -343,6 +448,12 @@ async function verifyRunDeleteGuards() {
 
 /* ── Structural: UI, authorization, regressions ───────────────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyUiStructure
+// Description: Checks app.js and index.html source for the Edit and Delete buttons on Recent
+//              Activity cards and their wiring.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function verifyUiStructure() {
   const card = functionBody(app, /async function loadRecentActivity\(\)/);
   assert.match(card, /class="recent-edit-btn"[^>]*data-recent-edit=/, "Edit is on every Recent Activity card");
@@ -377,6 +488,12 @@ function verifyUiStructure() {
   assert.match(app, /PACE_DATA\.updateVisit\(STATE\.editingVisitId, entry\)/);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyAuthorizationNotAdminOnly
+// Description: Checks that edit and delete use the existing PACE authorization check, with no role
+//              or Administrator logic.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function verifyAuthorizationNotAdminOnly() {
   const gate = functionBody(app, /function isPaceAuthorized\(/);
   assert.match(gate, /APP_USERS\.decide\("PACE", true\)\.allowed/, "reuses the existing PACE authorization decision");
@@ -397,7 +514,18 @@ function verifyAuthorizationNotAdminOnly() {
   assert.match(app, /const paceDecision = APP_USERS\.decide\("PACE", true\);\s*if \(!paceDecision\.allowed\) \{/);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyGraphSurface
+// Description: Checks graph.js source: one DELETE transport, used only by deletePaceVisit, aimed
+//              only at IEP_Pace_Visits.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function verifyGraphSurface() {
+  ///////////////////////////////////////////////////////////////////////////////////////////////
+  // Function Name: withoutComments
+  // Description: Strips block and line comments from source so the checks see only code.
+  // Parameters: string src - source text - input
+  ///////////////////////////////////////////////////////////////////////////////////////////////
   const withoutComments = src => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
   const g = withoutComments(graphSrc);
   assert.equal((g.match(/method:\s*"DELETE"/g) || []).length, 1, "one DELETE transport");
@@ -413,6 +541,12 @@ function verifyGraphSurface() {
   assert.match(g, /async updateMappedListItem\([\s\S]*?this\._patch\(`sites\/\$\{siteId\}\/lists\/\$\{listId\}\/items\/\$\{itemId\}\/fields`/);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyRegressionsUntouched
+// Description: Checks that Start Visit, Mark Complete and the other existing flows are still wired
+//              up after the edit and delete patch.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function verifyRegressionsUntouched() {
   // Start Visit / Mark Complete path.
   assert.match(paceDataSrc, /async createVisit\(entry\) \{/);

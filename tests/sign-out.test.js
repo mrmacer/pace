@@ -1,9 +1,12 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   PACE Room Tracker — focused sign-out coverage
-
-   Pins the existing MSAL helper's redirect request and the app-owned local
-   session cleanup without constructing a browser or contacting Microsoft.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: August 31, 2026
+// Filename: sign-out.test.js
+// Purpose: PACE Room Tracker — focused sign-out coverage
+//
+//          Pins the existing MSAL helper's redirect request and the app-owned local
+//          session cleanup without constructing a browser or contacting Microsoft.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -15,6 +18,12 @@ const authSource = fs.readFileSync(path.join(ROOT, "auth.js"), "utf8");
 const htmlSource = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 const appSource = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyProductionLogout
+// Description: Checks that production sign-out clears only the app's own local storage keys and
+//              sends the MSAL logout redirect.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyProductionLogout() {
   const removed = [];
   const storage = new Map([
@@ -42,6 +51,11 @@ async function verifyProductionLogout() {
   auth.staffName = "Pilot User";
   auth.role = "Behavior Specialist";
   auth._client = {
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: logoutRedirect
+    // Description: Fake MSAL logoutRedirect that records the request instead of leaving the page.
+    // Parameters: Object request - MSAL logout request - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     logoutRedirect(request) {
       redirects.push(request);
       return Promise.resolve();
@@ -62,6 +76,12 @@ async function verifyProductionLogout() {
   }]);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyAuthenticatedShellWiring
+// Description: Checks index.html and app.js source for the signed-in toolbar and the Sign Out
+//              button wiring.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function verifyAuthenticatedShellWiring() {
   assert.match(htmlSource, /class="auth-toolbar hidden"[^>]*id="authToolbar"/);
   assert.match(htmlSource, /id="signedInIndicator"/);

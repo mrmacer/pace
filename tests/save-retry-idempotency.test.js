@@ -1,8 +1,11 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   RETRY-IDEMPOTENCY PATCH — GRAPH.savePaceVisit() must not create a second
-   SharePoint row when "Try Again" re-sends an entry whose first POST
-   actually succeeded but whose response was lost.
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: October 9, 2026
+// Filename: save-retry-idempotency.test.js
+// Purpose: RETRY-IDEMPOTENCY PATCH — GRAPH.savePaceVisit() must not create a second
+//          SharePoint row when "Try Again" re-sends an entry whose first POST
+//          actually succeeded but whose response was lost.
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -12,6 +15,11 @@ const vm = require("node:vm");
 const ROOT = path.resolve(__dirname, "..");
 const TODAY = "2026-10-09";
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: loadGraph
+// Description: Loads the real graph.js into a production vm context and returns its GRAPH object.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 function loadGraph() {
   const context = vm.createContext({
     console,
@@ -28,6 +36,14 @@ function loadGraph() {
 
 // A fake IEP_Pace_Visits list. `loseNextResponse` makes the next POST
 // persist its row but throw, exactly like a dropped network response.
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: fakeList
+// Description: Replaces GRAPH's create and per-date read with a fake IEP_Pace_Visits list; setting
+//              loseNextResponse makes the next POST save its row but throw.
+// Parameters: Object graph - GRAPH object to patch - input/output
+//             Object options - { hasEntryIdColumn } whether the fake list has an Entry ID column -
+//              input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function fakeList(graph, { hasEntryIdColumn }) {
   const world = { rows: [], posts: 0, reads: 0, loseNextResponse: false };
   graph.createMappedListItem = async (list, fields) => {
@@ -46,11 +62,22 @@ function fakeList(graph, { hasEntryIdColumn }) {
   return world;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: entry
+// Description: Builds a visit entry with test defaults, replaced by any overrides.
+// Parameters: Object overrides - entry fields to replace - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const entry = (overrides = {}) => ({
   id: "sub-1", paceRoom: "pace-room-1", studentId: "S100", studentName: "Alex R.",
   date: TODAY, timeIn: "09:15", timeOut: "09:42", behaviors: ["Needs a Break"], ...overrides
 });
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: lostResponseThenRetry
+// Description: Checks that a retry after a lost POST response returns the saved row instead of
+//              creating a second one.
+// Parameters: boolean hasEntryIdColumn - whether the fake list has an Entry ID column - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function lostResponseThenRetry(hasEntryIdColumn) {
   const graph = loadGraph();
   const world = fakeList(graph, { hasEntryIdColumn });
@@ -66,6 +93,11 @@ async function lostResponseThenRetry(hasEntryIdColumn) {
   assert.equal(retry.id, "1", "the already-saved row's id is returned");
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: firstAttemptSkipsTheRead
+// Description: Checks that a first save attempt sends one POST and no extra read.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function firstAttemptSkipsTheRead() {
   const graph = loadGraph();
   const world = fakeList(graph, { hasEntryIdColumn: false });
@@ -74,6 +106,11 @@ async function firstAttemptSkipsTheRead() {
   assert.equal(world.posts, 1);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: retryAfterRealFailureStillSaves
+// Description: Checks that a retry after a real failure (nothing saved) still creates the row.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function retryAfterRealFailureStillSaves() {
   const graph = loadGraph();
   const world = fakeList(graph, { hasEntryIdColumn: false });
@@ -87,6 +124,12 @@ async function retryAfterRealFailureStillSaves() {
   assert.notEqual(retry.duplicatePrevented, true);
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: differentVisitIsNotSwallowed
+// Description: Checks that a different visit saved after a lost response becomes its own row and
+//              isn't matched to the earlier one.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function differentVisitIsNotSwallowed() {
   const graph = loadGraph();
   const world = fakeList(graph, { hasEntryIdColumn: false });

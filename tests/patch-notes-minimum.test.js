@@ -1,12 +1,15 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   NOTES MINIMUM PATCH — completed PACE visits need non-blank Notes (at
-   least 1 non-whitespace character; Issue #10 dropped the old 20-character
-   minimum). One shared rule (PACE_VISIT_WORKFLOW.validateCompletionNotes)
-   enforced in the UI, the save handler, and the data layer. Open live-start
-   visits never need Notes; historical records are never rewritten.
-
-   Run with: node tests/patch-notes-minimum.test.js
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: October 9, 2026
+// Filename: patch-notes-minimum.test.js
+// Purpose: NOTES MINIMUM PATCH — completed PACE visits need non-blank Notes (at
+//          least 1 non-whitespace character; Issue #10 dropped the old 20-character
+//          minimum). One shared rule (PACE_VISIT_WORKFLOW.validateCompletionNotes)
+//          enforced in the UI, the save handler, and the data layer. Open live-start
+//          visits never need Notes; historical records are never rewritten.
+//
+//          Run with: node tests/patch-notes-minimum.test.js
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -64,6 +67,12 @@ assert.deepEqual(Object.keys(Workflow.validateCompletionNotes("abc")).sort(), ["
 
 /* ── 3. Data layer (demo provider; zero Microsoft calls) ─────────────── */
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: makeDemo
+// Description: Builds a demo-mode vm context seeded with the given visits and loads the real data
+//              modules; returns the provider, the stored rows, and the Microsoft call count.
+// Parameters: Array seed - visits to preload into demo storage (default none) - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 function makeDemo(seed = []) {
   const storage = new Map();
   storage.set("paceRoomTrackerDemoData", JSON.stringify({ paceVisits: seed }));
@@ -86,7 +95,18 @@ function makeDemo(seed = []) {
     }
   });
   vm.runInContext(`
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: paceRoomLabelForId
+    // Description: Test copy of config.js's room helper: returns the display label for a room id.
+    // Parameters: string id - room id such as "pace-room-1" - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     function paceRoomLabelForId(id) { const r = CONFIG.ROOMS.find(x => x.id === id); return r ? r.label : (id || ""); }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    // Function Name: paceRoomIdForLabel
+    // Description: Test copy of config.js's room helper: returns the room id for a label or id, or the
+    //              raw value when it isn't a known room.
+    // Parameters: string value - room label or id read from a visit - input
+    ///////////////////////////////////////////////////////////////////////////////////////////////
     function paceRoomIdForLabel(v) { const raw = String(v ?? "").trim(); if (!raw) return ""; const r = CONFIG.ROOMS.find(x => x.label === raw || x.id === raw); return r ? r.id : raw; }
     const PACE_ROOM_FIELD_CANDIDATES = ["Room", "PACE Room", "Pace Room"];
   `, context);
@@ -102,6 +122,11 @@ function makeDemo(seed = []) {
   };
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: entry
+// Description: Builds a visit entry with test defaults, replaced by any overrides.
+// Parameters: Object overrides - entry fields to replace - input
+///////////////////////////////////////////////////////////////////////////////////////////////
 const entry = (overrides = {}) => ({
   id: "v1", paceRoom: "pace-room-1", studentName: "Alex R.", date: TODAY,
   timeIn: "09:00", timeOut: "", durationMinutes: null, behaviors: ["Needs a Break"],
@@ -109,6 +134,12 @@ const entry = (overrides = {}) => ({
   ...overrides
 });
 
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Function Name: verifyDemoDataLayer
+// Description: Checks the data layer in demo mode: open visits save without notes, completed
+//              visits and edits need non-blank notes, and older rows are never rewritten.
+// Parameters: none
+///////////////////////////////////////////////////////////////////////////////////////////////
 async function verifyDemoDataLayer() {
   // Open visit without Notes is fine (Start Visit path).
   const open = makeDemo();

@@ -33,7 +33,8 @@ function assertGraphAllowed() {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 // Function Name: isWritableSharePointField
 // Description: Rejects SharePoint system, read-only, and underscore-prefixed fields before a
-//              write payload is mapped to internal column names.
+//              write payload is mapped to internal column names. Names that begin with an
+//              encoded character (_x0053_ is "S") are ordinary user columns and stay writable.
 // Parameters: string internalName - internal SharePoint column name to check - input
 ///////////////////////////////////////////////////////////////////////////////////////////////
 function isWritableSharePointField(internalName) {
@@ -45,7 +46,11 @@ function isWritableSharePointField(internalName) {
   ]);
   if (!internalName) return false;
   if (blocked.has(internalName)) return false;
-  if (internalName.startsWith("_")) return false;
+  // SCM COLUMN PATCH: the live SCM column's internal name is "_x0053_CM1"
+  // (SharePoint's encoding of a leading "S"), so the plain underscore rule
+  // blocked it as if it were a system field. System fields never start with
+  // an encoded character, so only those names are let through.
+  if (internalName.startsWith("_") && !/^_x[0-9A-Fa-f]{4}_/.test(internalName)) return false;
   return true;
 }
 
@@ -606,6 +611,11 @@ const GRAPH = {
       "Duration":           entry.durationMinutes ?? undefined,
       "Reason":             Array.isArray(entry.behaviors)     ? entry.behaviors.join(", ")     : (entry.behaviors || ""),
       "Intervention Used":  Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
+      // SCM COLUMN PATCH: the diagnostic run on 11-23-2026 shows the live
+      // column's display name is "SCM" (internal _x0053_CM1, Yes/No), so the
+      // "SCM Used" key alone was dropped by mapFields(). Both names are sent,
+      // the same alias approach as Room; only the one that exists is written.
+      "SCM":                entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "SCM Used":           entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "Notes":              entry.notes        || "",
       "Behavior Specialist": Array.isArray(entry.staffMembers) ? entry.staffMembers.join(", ") : (entry.staffMembers || ""),
@@ -711,6 +721,8 @@ const GRAPH = {
       // below, and directly against the "do not treat blank as No" rule.
       // In practice app.js's save-time guard no longer allows this path to
       // run with a non-boolean scmUsed, but this stays null-safe regardless.
+      // SCM COLUMN PATCH: both names, see savePaceVisit().
+      "SCM":               entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "SCM Used":          entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "Notes":             has("notes") ? (entry.notes || "") : undefined,
       "Behavior Specialist": has("staffMembers") ? joined(entry.staffMembers) : undefined,
@@ -764,6 +776,8 @@ const GRAPH = {
       "Time Out":          entry.timeOut || "",
       "Duration":          entry.durationMinutes ?? undefined,
       "Intervention Used": Array.isArray(entry.interventions) ? entry.interventions.join(", ") : (entry.interventions || ""),
+      // SCM COLUMN PATCH: both names, see savePaceVisit().
+      "SCM":               entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "SCM Used":          entry.scmUsed == null ? undefined : entry.scmUsed === true,
       "Notes":             entry.notes || ""
     });

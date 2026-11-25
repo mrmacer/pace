@@ -1835,7 +1835,9 @@ function openExitScreen(item) {
   STATE.timeOut = nowHHMM();
   STATE.reasons = RECENT_ACTIVITY.editModel(item).reasons;
   STATE.supports = RECENT_ACTIVITY.editModel(item).supports;
-  STATE.scmUsed = typeof item["SCM Used"] === "boolean" ? item["SCM Used"] : null;
+  // SCM COLUMN PATCH: the live column is "SCM"; "SCM Used" is the older alias.
+  const storedScm = item["SCM"] ?? item["SCM Used"];
+  STATE.scmUsed = typeof storedScm === "boolean" ? storedScm : null;
   // If an active-room editor has a newer local draft than the last provider
   // read, carry that exact text into final completion. The completion PATCH
   // still targets this same existing item id.

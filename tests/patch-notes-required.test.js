@@ -1,18 +1,21 @@
-/* ─────────────────────────────────────────────────────────────────────────
-   REQUIRED NOTES PATCH — every completed PACE visit must carry non-empty
-   Notes; an open live-start visit never needs them, since it never even
-   reaches the Notes screen.
-
-   Static/structural style, matching this project's own established
-   convention for app.js-level concerns (see patch010-specialists-notes.
-   test.js — app.js is never loaded into node:vm anywhere in this suite;
-   its DOM-wiring behavior is proven via source-order/structural assertions
-   instead, since the actual validation logic lives inline in event
-   handlers rather than in a separately-loadable pure module like
-   visit-workflow.js/pace-data.js).
-
-   Run with: node tests/patch-notes-required.test.js
-   ───────────────────────────────────────────────────────────────────────── */
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Author: R-E Miller & Greg Macer
+// Creation Date: September 15, 2026
+// Filename: patch-notes-required.test.js
+// Purpose: REQUIRED NOTES PATCH — every completed PACE visit must carry non-empty
+//          Notes; an open live-start visit never needs them, since it never even
+//          reaches the Notes screen.
+//
+//          Static/structural style, matching this project's own established
+//          convention for app.js-level concerns (see patch010-specialists-notes.
+//          test.js — app.js is never loaded into node:vm anywhere in this suite;
+//          its DOM-wiring behavior is proven via source-order/structural assertions
+//          instead, since the actual validation logic lives inline in event
+//          handlers rather than in a separately-loadable pure module like
+//          visit-workflow.js/pace-data.js).
+//
+//          Run with: node tests/patch-notes-required.test.js
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
